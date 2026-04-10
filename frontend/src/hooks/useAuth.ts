@@ -1,49 +1,104 @@
 import { useEffect, useState } from "react";
-import { Session } from "@supabase/supabase-js";
+import type { User, Session } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 
+export interface AuthState {
+  user: User | null;
+  session: Session | null;
+  loading: boolean;
+}
+
 export function useAuth() {
-  const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [state, setState] = useState<AuthState>({
+    user: null,
+    session: null,
+    loading: true,
+  });
 
   useEffect(() => {
-    const initialize = async () => {
-      const {
-        data: { session: currentSession },
-      } = await supabase.auth.getSession();
-      setSession(currentSession);
-      setLoading(false);
-    };
-
-    initialize();
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_, session) => {
-      setSession(session);
+    // Get current session on mount
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setState({ user: session?.user ?? null, session, loading: false });
     });
 
-    return () => {
-      listener?.subscription.unsubscribe();
-    };
+    // Listen for auth state changes (OAuth redirects, sign-out, etc.)
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setState({ user: session?.user ?? null, session, loading: false });
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const login = async (email: string, password: string) => {
-    return await supabase.auth.signInWithPassword({ email, password });
+  // ── Email / Password ──────────────────────────────────────────────────────
+  const signUp = async (email: string, password: string, fullName?: string) => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { full_name: fullName ?? "" },
+        // After email confirmation, redirect back to your app
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
+    if (error) throw error;
+    return data;
   };
 
-  const signup = async (email: string, password: string) => {
-    return await supabase.auth.signUp({ email, password });
+  const signIn = async (email: string, password: string) => {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    if (error) throw error;
+    return data;
   };
 
-  const logout = async () => {
-    await supabase.auth.signOut();
-    setSession(null);
+  const signOut = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
+  };
+
+  // ── OAuth ─────────────────────────────────────────────────────────────────
+  // After OAuth login, Supabase redirects to /auth/callback.
+  // Your AppRouter should handle that route and redirect to "/" (home/dashboard).
+  const signInWithGoogle = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
+    if (error) throw error;
+  };
+
+  const signInWithFacebook = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "facebook",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
+    if (error) throw error;
+  };
+
+  // ── Password reset ────────────────────────────────────────────────────────
+  const resetPassword = async (email: string) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/reset-password`,
+    });
+    if (error) throw error;
   };
 
   return {
-    session,
-    loading,
-    login,
-    signup,
-    logout,
+    ...state,
+    signUp,
+    signIn,
+    signOut,
+    logout: signOut,
+    signInWithGoogle,
+    signInWithFacebook,
+    resetPassword,
   };
 }

@@ -9,4 +9,4 @@ app.include_router(router, prefix="/api")
 
 @app.get("/healthz")
 def health_check() -> dict:
-    return {"status": "ok", "service": "postra-backend", "environment": settings.environment}
+    return {"status": "ok", "service": "postra-backend", "environment": settings().environment}
