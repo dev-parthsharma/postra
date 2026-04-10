@@ -6,7 +6,18 @@
     <title>Postra</title>
   </head>
   <body>
+    <div id="loader" style="display:flex;justify-content:center;align-items:center;height:100vh;">
+      <img src="/postra-logo.png" style="width:80px;" />
+    </div>
+
     <div id="root"></div>
+
+    <script>
+      window.addEventListener("load", () => {
+        document.getElementById("loader").style.display = "none";
+      });
+    </script>
+
     <script type="module" src="src/main.tsx"></script>
   </body>
 </html>
