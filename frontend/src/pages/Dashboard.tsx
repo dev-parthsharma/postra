@@ -5,6 +5,9 @@ import StatsCards from "../components/dashboard/StatsCards";
 import RecentDrafts from "../components/dashboard/RecentDrafts";
 import ScheduledPosts from "../components/dashboard/ScheduledPosts";
 import { useDashboard } from "../hooks/useDashboard";
+import { useState } from "react";
+import NewPostModal from "../components/NewPostModal";
+import type { Chat } from "../lib/ideasApi";
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -22,12 +25,18 @@ function getGreetingEmoji(hour: number): string {
 export default function Dashboard() {
   const navigate = useNavigate();
   const { data, loading, error } = useDashboard();
+  const [showNewPost, setShowNewPost] = useState(false);
 
   const hour = new Date().getHours();
   const greeting = getGreeting();
   const emoji = getGreetingEmoji(hour);
 
   const scheduledThisWeek = data?.scheduledThisWeek ?? 0;
+
+  const handleChatCreated = (chat: Chat) => {
+    setShowNewPost(false);
+    navigate(`/drafts?chat=${chat.id}`);
+  };
 
   return (
     <DashboardLayout>
@@ -56,8 +65,10 @@ export default function Dashboard() {
           </p>
         </div>
 
+        {/* ← Changed: was navigate("/ideas"), now opens modal */}
         <button
-          onClick={() => navigate("/ideas")}
+          type="button"
+          onClick={() => setShowNewPost(true)}
           className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-semibold px-5 py-2.5 rounded-xl shadow-sm transition-all duration-150 self-start sm:self-auto whitespace-nowrap"
         >
           <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -118,6 +129,14 @@ export default function Dashboard() {
           </button>
         ))}
       </div>
+
+      {/* ← Added: New Post modal */}
+      {showNewPost && (
+        <NewPostModal
+          onClose={() => setShowNewPost(false)}
+          onChatCreated={handleChatCreated}
+        />
+      )}
     </DashboardLayout>
   );
 }
