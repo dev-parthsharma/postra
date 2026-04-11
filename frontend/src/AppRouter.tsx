@@ -6,7 +6,21 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import AuthCallback from "./pages/AuthCallback";
 import Home from "./pages/Home";
+import Dashboard from "./pages/Dashboard";
 import OnboardingModal from "./components/OnboardingModal";
+
+// ── Placeholder page for unbuilt routes ──────────────────────────────────────
+function PlaceholderPage({ title }: { title: string }) {
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="text-center">
+        <div className="text-4xl mb-3">🚧</div>
+        <h2 className="text-xl font-semibold text-slate-700">{title}</h2>
+        <p className="text-slate-400 text-sm mt-1">Coming soon</p>
+      </div>
+    </div>
+  );
+}
 
 // ── ProtectedRoute ────────────────────────────────────────────────────────────
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -15,12 +29,16 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-        <div className="w-8 h-8 rounded-lg bg-orange-500 animate-pulse flex items-center justify-center">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-            <path d="M8 1L14 4.5V11.5L8 15L2 11.5V4.5L8 1Z" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/>
-            <circle cx="8" cy="8" r="2" fill="white"/>
-          </svg>
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-indigo-600 animate-pulse flex items-center justify-center">
+            <img
+              src="https://postra-landing.vercel.app/assets/postra.png"
+              alt="Postra"
+              className="h-6 w-auto brightness-0 invert"
+            />
+          </div>
+          <p className="text-sm text-slate-400">Loading…</p>
         </div>
       </div>
     );
@@ -34,7 +52,6 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 // ── HomeWithOnboarding ────────────────────────────────────────────────────────
-// Wraps Home page and shows the onboarding popup when ?onboarding=true
 function HomeWithOnboarding() {
   const { user } = useAuth();
   const location = useLocation();
@@ -49,13 +66,12 @@ function HomeWithOnboarding() {
 
   const handleOnboardingComplete = () => {
     setShowOnboarding(false);
-    // Remove ?onboarding=true from URL without reload
-    window.history.replaceState({}, "", "/");
+    window.history.replaceState({}, "", "/dashboard");
   };
 
   return (
     <>
-      <Home />
+      <Dashboard />
       {showOnboarding && user && (
         <OnboardingModal userId={user.id} onComplete={handleOnboardingComplete} />
       )}
@@ -73,9 +89,19 @@ export default function AppRouter() {
         <Route path="/signup" element={<Signup />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
 
-        {/* Protected */}
+        {/* Protected — redirect old / to /dashboard */}
         <Route
           path="/"
+          element={
+            <ProtectedRoute>
+              <Navigate to="/dashboard" replace />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Dashboard (home) — also handles ?onboarding=true */}
+        <Route
+          path="/dashboard"
           element={
             <ProtectedRoute>
               <HomeWithOnboarding />
@@ -83,8 +109,16 @@ export default function AppRouter() {
           }
         />
 
+        {/* Placeholder routes for nav items */}
+        <Route path="/ideas" element={<ProtectedRoute><PlaceholderPage title="Ideas" /></ProtectedRoute>} />
+        <Route path="/drafts" element={<ProtectedRoute><PlaceholderPage title="Drafts" /></ProtectedRoute>} />
+        <Route path="/scheduled" element={<ProtectedRoute><PlaceholderPage title="Scheduled" /></ProtectedRoute>} />
+        <Route path="/published" element={<ProtectedRoute><PlaceholderPage title="Published" /></ProtectedRoute>} />
+        <Route path="/workflows" element={<ProtectedRoute><PlaceholderPage title="Workflows" /></ProtectedRoute>} />
+        <Route path="/settings" element={<ProtectedRoute><PlaceholderPage title="Settings" /></ProtectedRoute>} />
+
         {/* Catch-all */}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>
   );
