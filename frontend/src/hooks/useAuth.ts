@@ -17,7 +17,18 @@ export function useAuth() {
 
   useEffect(() => {
     // Get current session on mount
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user) {
+        // 🔥 REAL CHECK (user DB me exist karta hai ya nahi)
+        const { data: userData, error } = await supabase.auth.getUser();
+      
+        if (error || !userData.user) {
+          await supabase.auth.signOut();
+          setState({ user: null, session: null, loading: false });
+          return;
+        }
+      }
+    
       setState({ user: session?.user ?? null, session, loading: false });
     });
 
@@ -25,7 +36,19 @@ export function useAuth() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setState({ user: session?.user ?? null, session, loading: false });
+      (async () => {
+        if (session?.user) {
+          const { data: userData, error } = await supabase.auth.getUser();
+        
+          if (error || !userData.user) {
+            await supabase.auth.signOut();
+            setState({ user: null, session: null, loading: false });
+            return;
+          }
+        }
+      
+        setState({ user: session?.user ?? null, session, loading: false });
+      })();
     });
 
     return () => subscription.unsubscribe();

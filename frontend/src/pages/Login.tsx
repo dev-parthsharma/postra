@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import AuthForm, { AuthFormData } from "../components/AuthForm";
 import logo from "../assets/postra-logo.png";
+import { supabase } from "../lib/supabase";
 
 export default function Login() {
   const { signIn, signInWithGoogle} = useAuth();
@@ -16,7 +17,24 @@ export default function Login() {
     setLoading(true);
     try {
       await signIn(data.email, data.password);
-      navigate("/");
+      const { data: { user } } = await supabase.auth.getUser();
+          
+      if (!user) {
+        navigate("/login");
+        return;
+      }
+      
+      const { data: profile } = await supabase
+        .from("user_profile")
+        .select("niche")
+        .eq("id", user.id)
+        .single();
+      
+      if (!profile || !profile.niche) {
+        navigate("/?onboarding=true");
+      } else {
+        navigate("/dashboard");
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
