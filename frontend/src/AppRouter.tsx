@@ -8,6 +8,7 @@ import AuthCallback from "./pages/AuthCallback";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import OnboardingModal from "./components/OnboardingModal";
+import UpdatePassword from "./pages/UpdatePassword";
 
 // ── Placeholder page for unbuilt routes ──────────────────────────────────────
 function PlaceholderPage({ title }: { title: string }) {
@@ -88,6 +89,7 @@ export default function AppRouter() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route path="/update-password" element={<UpdatePassword />} />
 
         {/* Protected — redirect old / to /dashboard */}
         <Route
