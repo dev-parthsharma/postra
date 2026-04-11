@@ -1,5 +1,5 @@
 // frontend/src/pages/AuthCallback.tsx
-// Supabase redirects here after OAuth (Google / Facebook) and email confirmation.
+// Supabase redirects here after OAuth (Google) and email confirmation.
 // We detect if the user is brand-new (no onboarding_complete flag) and redirect
 // accordingly. The onboarding popup is shown on the Home page.
 

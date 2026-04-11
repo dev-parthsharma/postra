@@ -73,16 +73,6 @@ export function useAuth() {
     if (error) throw error;
   };
 
-  const signInWithFacebook = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "facebook",
-      options: {
-        redirectTo: "https://postra-five.vercel.app/auth/callback",
-      },
-    });
-    if (error) throw error;
-  };
-
   // ── Password reset ────────────────────────────────────────────────────────
   const resetPassword = async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
@@ -98,7 +88,6 @@ export function useAuth() {
     signOut,
     logout: signOut,
     signInWithGoogle,
-    signInWithFacebook,
     resetPassword,
   };
 }
