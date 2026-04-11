@@ -31,12 +31,11 @@ export default function AuthCallback() {
         .single();
 
       // If no profile row or niche is empty → show onboarding
-      if (!profile || !profile.niche) {
-        // New user — go to home and show the onboarding popup
-        navigate("/?onboarding=true", { replace: true });
-      } else {
-        navigate("/", { replace: true });
-      }
+        if (!profile || !profile.niche) {
+          navigate("/dashboard?onboarding=true", { replace: true }); // ← was "/?onboarding=true"
+        } else {
+          navigate("/dashboard", { replace: true }); // ← was "/"
+        }
     };
 
     handle();

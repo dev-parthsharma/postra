@@ -9,6 +9,7 @@ import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import OnboardingModal from "./components/OnboardingModal";
 import UpdatePassword from "./pages/UpdatePassword";
+import { supabase } from "./lib/supabase";
 
 // ── Placeholder page for unbuilt routes ──────────────────────────────────────
 function PlaceholderPage({ title }: { title: string }) {
@@ -62,8 +63,27 @@ function HomeWithOnboarding() {
     const params = new URLSearchParams(location.search);
     if (params.get("onboarding") === "true") {
       setShowOnboarding(true);
+      return;
     }
-  }, [location.search]);
+
+    // For email/password users who never go through AuthCallback,
+    // check if they have a profile yet
+    if (!user) return;
+
+    const checkProfile = async () => {
+      const { data: profile } = await supabase
+        .from("user_profile")
+        .select("id, niche")
+        .eq("id", user.id)
+        .single();
+
+      if (!profile || !profile.niche) {
+        setShowOnboarding(true);
+      }
+    };
+
+    checkProfile();
+  }, [location.search, user]);
 
   const handleOnboardingComplete = () => {
     setShowOnboarding(false);
