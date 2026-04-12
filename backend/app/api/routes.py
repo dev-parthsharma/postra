@@ -90,7 +90,12 @@ async def generate_ideas(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
+        print("RUNTIME ERROR:", str(e))  # ADD THIS
         raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        print("UNEXPECTED ERROR:", str(e))  # ADD THIS
+        raise HTTPException(status_code=502, detail=str(e))
+
 
 
 @router.post("/ideas/save")

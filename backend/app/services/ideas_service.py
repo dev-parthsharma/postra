@@ -6,6 +6,7 @@ import os
 import json
 import httpx
 from typing import Optional
+from app.core.settings import settings
 
 from app.integrations.queries import (
     insert_ideas,
@@ -18,8 +19,8 @@ from app.integrations.queries import (
 
 # ── AI idea generation ────────────────────────────────────────────────────────
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")  # set in backend/.env
-AI_MODEL = "mistralai/mistral-small-3.1-24b-instruct:free"
+GROQ_API_KEY = settings.groq_api_key
+AI_MODEL = "llama-3.1-8b-instant"
 
 
 def _build_prompt(niche: str, tone: str, style: str) -> str:
@@ -49,23 +50,21 @@ Response format:
 
 async def generate_ideas(niche: str, tone: str, style: str) -> list[str]:
     """
-    Call LLM API and parse exactly 3 ideas.
+    Call Google Gemini API and parse exactly 3 ideas.
     Raises ValueError if response is malformed.
     Raises RuntimeError if the API call fails.
     """
-    if not OPENROUTER_API_KEY:
-        raise RuntimeError("OPENROUTER_API_KEY is not set in environment")
+    if not GROQ_API_KEY:
+        raise RuntimeError("GROQ_API_KEY is not set in environment")
 
     prompt = _build_prompt(niche, tone, style)
 
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(
-            "https://openrouter.ai/api/v1/chat/completions",
+            "https://api.groq.com/openai/v1/chat/completions",
             headers={
-                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Authorization": f"Bearer {GROQ_API_KEY}",
                 "Content-Type": "application/json",
-                "HTTP-Referer": "https://postra-five.vercel.app",
-                "X-Title": "Postra",
             },
             json={
                 "model": AI_MODEL,
