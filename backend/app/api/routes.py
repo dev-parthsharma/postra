@@ -1,7 +1,6 @@
 # backend/app/api/routes.py
 
 import os
-import jwt
 from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel, Field
 
@@ -9,8 +8,9 @@ from app.integrations.queries import fetch_user_count, insert_ideas, toggle_favo
 from app.schemas.auth import AuthRequest
 from app.schemas.response import HealthResponse
 from app.services.auth_service import AuthService
-from app.integrations.supabase_client import get_supabase_client
+from app.integrations.supabase_client import get_supabase_client, get_http_client
 from app.services import ideas_service
+from app.core.settings import settings
 
 # Single router — no prefix so existing routes stay at their original paths
 router = APIRouter()
@@ -19,21 +19,20 @@ router = APIRouter()
 # ── Auth helper ───────────────────────────────────────────────────────────────
 
 def get_current_user_id(authorization: str = Header(...)) -> str:
-    """
-    Extract user_id from 'Bearer <supabase_jwt>' header.
-    JWT secret lives in backend/.env as SUPABASE_JWT_SECRET.
-    Find it in: Supabase dashboard → Settings → API → JWT Secret
-    """
-    secret = os.getenv("SUPABASE_JWT_SECRET")
-    if not secret:
-        raise HTTPException(status_code=500, detail="JWT secret not configured")
     try:
         token = authorization.split(" ")[1]
-        payload = jwt.decode(token, secret, algorithms=["HS256"], audience="authenticated")
-        return payload["sub"]  # sub = user UUID
-    except Exception:
+        response = get_http_client().get(
+            "/auth/v1/user",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        if response.status_code != 200:
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
+        return response.json()["id"]
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("JWT ERROR:", str(e))
         raise HTTPException(status_code=401, detail="Invalid or expired token")
-
 
 def get_supabase():
     return get_supabase_client()
@@ -80,7 +79,7 @@ def signup(payload: AuthRequest):
 
 # ── Ideas routes ──────────────────────────────────────────────────────────────
 
-@router.post("/api/ideas/generate")
+@router.post("/ideas/generate")
 async def generate_ideas(
     user_id: str = Depends(get_current_user_id),
     supabase=Depends(get_supabase),
@@ -94,7 +93,7 @@ async def generate_ideas(
         raise HTTPException(status_code=502, detail=str(e))
 
 
-@router.post("/api/ideas/save")
+@router.post("/ideas/save")
 def save_user_idea(
     body: SaveIdeaRequest,
     user_id: str = Depends(get_current_user_id),
@@ -107,7 +106,7 @@ def save_user_idea(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.patch("/api/ideas/favourite")
+@router.patch("/ideas/favourite")
 def toggle_favourite_route(
     body: ToggleFavouriteRequest,
     user_id: str = Depends(get_current_user_id),
@@ -122,7 +121,7 @@ def toggle_favourite_route(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.post("/api/ideas/confirm")
+@router.post("/ideas/confirm")
 def confirm_idea(
     body: ConfirmIdeaRequest,
     user_id: str = Depends(get_current_user_id),
@@ -137,7 +136,7 @@ def confirm_idea(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/api/ideas")
+@router.get("/ideas")
 def list_ideas(
     user_id: str = Depends(get_current_user_id),
     supabase=Depends(get_supabase),

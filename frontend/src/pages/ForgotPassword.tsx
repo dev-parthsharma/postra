@@ -7,7 +7,7 @@ export default function ForgotPassword() {
 
   const handleReset = async () => {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: "https://YOUR-VERCEL-DOMAIN.vercel.app/update-password",
+      redirectTo: `${window.location.origin}/auth/reset-password`,
     });
 
     if (error) {

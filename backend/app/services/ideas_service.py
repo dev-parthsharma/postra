@@ -19,7 +19,7 @@ from app.integrations.queries import (
 # ── AI idea generation ────────────────────────────────────────────────────────
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")  # set in backend/.env
-AI_MODEL = "mistralai/mistral-7b-instruct"            # cheap & fast; swap freely
+AI_MODEL = "mistralai/mistral-small-3.1-24b-instruct:free"
 
 
 def _build_prompt(niche: str, tone: str, style: str) -> str:

@@ -1,6 +1,8 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* frontend\src\styles\index.css */
+
+@tailwind base;   /* Unknown at rule @tailwind */
+@tailwind components;   /* Unknown at rule @tailwind */
+@tailwind utilities;   /* Unknown at rule @tailwind */
 
 :root {
   color-scheme: light;

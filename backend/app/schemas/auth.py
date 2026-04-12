@@ -9,4 +9,4 @@ class AuthRequest(BaseModel):
 class AuthResponse(BaseModel):
     user_id: str
     email: EmailStr
-    access_token: str
+    access_token: str 

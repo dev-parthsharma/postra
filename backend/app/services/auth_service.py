@@ -1,10 +1,9 @@
-from app.integrations.supabase_client import supabase_client
-
+from app.integrations.supabase_client import get_http_client
 
 class AuthService:
     @staticmethod
     def verify_token(access_token: str) -> bool:
-        response = supabase_client.get(
+        response = get_http_client().get(
             "/auth/v1/user",
             headers={"Authorization": f"Bearer {access_token}"},
         )
@@ -12,7 +11,7 @@ class AuthService:
 
     @staticmethod
     def create_user(email: str, password: str) -> dict:
-        response = supabase_client.post(
+        response = get_http_client().post(
             "/auth/v1/admin/users",
             json={"email": email, "password": password, "email_confirm": True},
         )

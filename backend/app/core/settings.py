@@ -1,19 +1,24 @@
+#backend\app\core\settings.py
+
 from pathlib import Path
 from typing import Optional
 
-from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    environment: str = Field("development", env="ENVIRONMENT")
-    supabase_url: str = Field(..., env="SUPABASE_URL")
-    supabase_service_role_key: str = Field(..., env="SUPABASE_SERVICE_ROLE_KEY")
-    supabase_anon_key: Optional[str] = Field(None, env="SUPABASE_ANON_KEY")
+    environment: str = "development"
+    supabase_url: str
+    supabase_service_role_key: str
+    supabase_anon_key: Optional[str] = None
 
-    class Config:
-        env_file = Path(__file__).resolve().parents[2] / ".env"
-        env_file_encoding = "utf-8"
+    openrouter_api_key: str
+    supabase_jwt_secret: str
+
+    model_config = SettingsConfigDict(
+        env_file=Path(__file__).resolve().parents[2] / ".env",
+        env_file_encoding="utf-8",
+    )
 
 
-settings = Settings()
+settings = Settings()  #Arguments missing for parameters "supabase_url", "supabase_service_role_key", "openrouter_api_key", "supabase_jwt_secret"

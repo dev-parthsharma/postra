@@ -4,4 +4,4 @@ from pydantic import BaseModel
 class HealthResponse(BaseModel):
     status: str
     service: str
-    environment: str
+    environment: str 

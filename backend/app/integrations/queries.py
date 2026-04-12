@@ -5,11 +5,12 @@
 
 from typing import Optional
 from postgrest.exceptions import APIError
-from app.integrations.supabase_client import supabase_client
+from app.integrations.supabase_client import get_supabase_client, get_http_client
 
+supabase = get_supabase_client()
 
 def fetch_user_count() -> int:
-    response = supabase_client.get("/auth/v1/admin/users", params={"limit": 1})
+    response = get_http_client().get("/auth/v1/admin/users", params={"limit": 1})
     response.raise_for_status()
     users = response.json()
     return len(users)
