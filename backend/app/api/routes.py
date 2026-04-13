@@ -4,7 +4,7 @@ import os
 from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel, Field
 
-from app.integrations.queries import fetch_user_count, insert_ideas, toggle_favourite, get_ideas_for_user, create_chat, get_user_profile
+from app.integrations.queries import fetch_user_count, insert_ideas, toggle_favourite, get_ideas_with_chat_status, create_chat, get_user_profile, delete_idea
 from app.schemas.auth import AuthRequest
 from app.schemas.response import HealthResponse
 from app.services.auth_service import AuthService
@@ -148,3 +148,15 @@ def list_ideas(
 ):
     ideas = ideas_service.handle_get_ideas(supabase, user_id)
     return {"ideas": ideas}
+
+@router.delete("/ideas/{idea_id}")
+def delete_idea_route(
+    idea_id: str,
+    user_id: str = Depends(get_current_user_id),
+    supabase=Depends(get_supabase),
+):
+    try:
+        delete_idea(supabase, idea_id, user_id)
+        return {"success": True}
+    except RuntimeError as e:
+        raise HTTPException(status_code=404, detail=str(e))

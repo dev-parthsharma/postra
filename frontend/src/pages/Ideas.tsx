@@ -3,8 +3,7 @@
 // Also has a "Save idea for later" section — input only, no AI.
 
 import { useEffect, useState, useCallback } from "react";
-import { listIdeas, saveUserIdea, toggleFavourite, confirmIdea, type Idea, type Chat } from "../lib/ideasApi";
-import { useAuth } from "../hooks/useAuth";
+import { listIdeas, saveUserIdea, toggleFavourite, confirmIdea, deleteIdea, type Idea } from "../lib/ideasApi";
 import { useNavigate } from "react-router-dom";
 
 function Spinner({ small = false }: { small?: boolean }) {
@@ -21,11 +20,13 @@ function IdeaRow({
   highlighted,
   onToggleFavourite,
   onStartChat,
+  onDelete,
 }: {
   idea: Idea;
   highlighted: boolean;
   onToggleFavourite: (idea: Idea) => void;
   onStartChat: (idea: Idea) => void;
+  onDelete: (idea: Idea) => void;
 }) {
   const [starting, setStarting] = useState(false);
 
@@ -58,7 +59,7 @@ function IdeaRow({
         {/* Idea text */}
         <div className="flex-1 min-w-0">
           <p className="text-zinc-200 text-sm leading-relaxed">{idea.idea}</p>
-          <div className="flex items-center gap-2 mt-1.5">
+          <div className="flex items-center flex-wrap gap-2 mt-1.5">
             <span className={`text-xs px-1.5 py-0.5 rounded border ${
               idea.source === "postra"
                 ? "text-orange-400/70 bg-orange-500/5 border-orange-500/15"
@@ -66,31 +67,68 @@ function IdeaRow({
             }`}>
               {idea.source === "postra" ? "✨ AI" : "✍️ You"}
             </span>
+
+            {/* In progress badge */}
+            {idea.in_progress && (
+              <span className="text-xs px-1.5 py-0.5 rounded border text-blue-400/70 bg-blue-500/5 border-blue-500/15">
+                ⏳ In progress
+              </span>
+            )}
+
             <span className="text-zinc-600 text-xs">
               {new Date(idea.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
             </span>
           </div>
         </div>
 
-        {/* Start Chat — only for highlighted ideas */}
-        {highlighted && (
-          <button
-            type="button"
-            onClick={handleStartChat}
-            disabled={starting}
-            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-white text-xs font-semibold transition-all duration-150 disabled:opacity-50 shadow-md shadow-orange-500/20"
-          >
-            {starting ? <Spinner small /> : null}
-            {starting ? "Starting…" : "Start Chat →"}
-          </button>
-        )}
+        {/* Right side actions */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Delete button — only for user-written ideas */}
+          {idea.source === "user" && (
+            <button
+              type="button"
+              onClick={() => onDelete(idea)}
+              className="text-zinc-600 hover:text-red-400 transition-colors duration-150"
+              title="Delete idea"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          )}
+
+          {/* Start Chat — only for highlighted ideas */}
+          {highlighted && !idea.in_progress && (
+            <button
+              type="button"
+              onClick={handleStartChat}
+              disabled={starting}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-white text-xs font-semibold transition-all duration-150 disabled:opacity-50 shadow-md shadow-orange-500/20"
+            >
+              {starting ? <Spinner small /> : null}
+              {starting ? "Starting…" : "Start Chat →"}
+            </button>
+          )}
+
+          {/* Continue chat if in progress */}
+          {highlighted && idea.in_progress && (
+            <button
+              type="button"
+              onClick={handleStartChat}
+              disabled={starting}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-all duration-150 disabled:opacity-50"
+            >
+              {starting ? <Spinner small /> : null}
+              {starting ? "Opening…" : "Continue →"}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
 export default function IdeasPage() {
-  const { user } = useAuth();
   const navigate = useNavigate();
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [loading, setLoading] = useState(true);
@@ -130,20 +168,31 @@ export default function IdeasPage() {
 
   const handleToggleFavourite = async (idea: Idea) => {
     const next = !idea.is_favourite;
-    // Optimistic
+    // Optimistic update
     setIdeas((prev) => prev.map((i) => i.id === idea.id ? { ...i, is_favourite: next } : i));
     try {
       await toggleFavourite(idea.id, next);
     } catch {
-      // Revert
+      // Revert on failure
       setIdeas((prev) => prev.map((i) => i.id === idea.id ? { ...i, is_favourite: !next } : i));
+    }
+  };
+
+  const handleDelete = async (idea: Idea) => {
+    // Optimistic remove
+    setIdeas((prev) => prev.filter((i) => i.id !== idea.id));
+    try {
+      await deleteIdea(idea.id);
+    } catch (e: unknown) {
+      // Revert on failure
+      setIdeas((prev) => [idea, ...prev]);
+      console.error("Failed to delete idea:", e);
     }
   };
 
   const handleStartChat = async (idea: Idea) => {
     try {
       const chat = await confirmIdea(idea.id, idea.idea);
-      // Navigate to the drafts/chat page with the new chat id
       navigate(`/drafts?chat=${chat.id}`);
     } catch (e: unknown) {
       console.error("Failed to start chat:", e);
@@ -212,6 +261,7 @@ export default function IdeasPage() {
                     highlighted={true}
                     onToggleFavourite={handleToggleFavourite}
                     onStartChat={handleStartChat}
+                    onDelete={handleDelete}
                   />
                 ))}
               </div>
@@ -232,6 +282,7 @@ export default function IdeasPage() {
                     highlighted={false}
                     onToggleFavourite={handleToggleFavourite}
                     onStartChat={handleStartChat}
+                    onDelete={handleDelete}
                   />
                 ))}
               </div>

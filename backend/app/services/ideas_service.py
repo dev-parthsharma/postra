@@ -11,7 +11,7 @@ from app.core.settings import settings
 from app.integrations.queries import (
     insert_ideas,
     toggle_favourite,
-    get_ideas_for_user,
+    get_ideas_with_chat_status,
     create_chat,
     get_user_profile,
 )
@@ -154,4 +154,4 @@ def handle_confirm_idea(supabase, user_id: str, idea_id: str, idea_text: str) ->
 
 
 def handle_get_ideas(supabase, user_id: str) -> list[dict]:
-    return get_ideas_for_user(supabase, user_id)
+    return get_ideas_with_chat_status(supabase, user_id)

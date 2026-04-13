@@ -33,6 +33,7 @@ export interface Idea {
   is_favourite: boolean;
   created_at: string;
   updated_at: string;
+  in_progress?: boolean
 }
 
 export interface Chat {
@@ -91,4 +92,12 @@ export async function listIdeas(): Promise<Idea[]> {
   });
   const data = await handleResponse<{ ideas: Idea[] }>(res);
   return data.ideas;
+}
+
+export async function deleteIdea(ideaId: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/ideas/${ideaId}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  await handleResponse<void>(res);
 }

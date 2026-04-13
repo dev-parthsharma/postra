@@ -10,6 +10,8 @@ import Dashboard from "./pages/Dashboard";
 import OnboardingModal from "./components/OnboardingModal";
 import UpdatePassword from "./pages/UpdatePassword";
 import { supabase } from "./lib/supabase";
+import DashboardLayout from "./components/layout/DashboardLayout";
+import IdeasPage from "./pages/Ideas";
 
 // ── Placeholder page for unbuilt routes ──────────────────────────────────────
 function PlaceholderPage({ title }: { title: string }) {
@@ -132,7 +134,7 @@ export default function AppRouter() {
         />
 
         {/* Placeholder routes for nav items */}
-        <Route path="/ideas" element={<ProtectedRoute><PlaceholderPage title="Ideas" /></ProtectedRoute>} />
+        <Route path="/ideas" element={<ProtectedRoute><DashboardLayout><IdeasPage /></DashboardLayout></ProtectedRoute>} />
         <Route path="/drafts" element={<ProtectedRoute><PlaceholderPage title="Drafts" /></ProtectedRoute>} />
         <Route path="/scheduled" element={<ProtectedRoute><PlaceholderPage title="Scheduled" /></ProtectedRoute>} />
         <Route path="/published" element={<ProtectedRoute><PlaceholderPage title="Published" /></ProtectedRoute>} />
