@@ -12,6 +12,7 @@ import UpdatePassword from "./pages/UpdatePassword";
 import { supabase } from "./lib/supabase";
 import DashboardLayout from "./components/layout/DashboardLayout";
 import IdeasPage from "./pages/Ideas";
+import Chat from "./pages/Chat";
 
 // ── Placeholder page for unbuilt routes ──────────────────────────────────────
 function PlaceholderPage({ title }: { title: string }) {
@@ -68,8 +69,6 @@ function HomeWithOnboarding() {
       return;
     }
 
-    // For email/password users who never go through AuthCallback,
-    // check if they have a profile yet
     if (!user) return;
 
     const checkProfile = async () => {
@@ -133,8 +132,31 @@ export default function AppRouter() {
           }
         />
 
-        {/* Placeholder routes for nav items */}
-        <Route path="/ideas" element={<ProtectedRoute><DashboardLayout><IdeasPage /></DashboardLayout></ProtectedRoute>} />
+        {/* Ideas */}
+        <Route
+          path="/ideas"
+          element={
+            <ProtectedRoute>
+              <DashboardLayout>
+                <IdeasPage />
+              </DashboardLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* ── Chat — sits inside DashboardLayout so sidebar is visible ── */}
+        <Route
+          path="/chat/:chatId"
+          element={
+            <ProtectedRoute>
+              <DashboardLayout>
+                <Chat />
+              </DashboardLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Placeholder routes */}
         <Route path="/drafts" element={<ProtectedRoute><PlaceholderPage title="Drafts" /></ProtectedRoute>} />
         <Route path="/scheduled" element={<ProtectedRoute><PlaceholderPage title="Scheduled" /></ProtectedRoute>} />
         <Route path="/published" element={<ProtectedRoute><PlaceholderPage title="Published" /></ProtectedRoute>} />

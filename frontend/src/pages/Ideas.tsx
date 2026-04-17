@@ -68,7 +68,6 @@ function IdeaRow({
               {idea.source === "postra" ? "✨ AI" : "✍️ You"}
             </span>
 
-            {/* In progress badge */}
             {idea.in_progress && (
               <span className="text-xs px-1.5 py-0.5 rounded border text-blue-400/70 bg-blue-500/5 border-blue-500/15">
                 ⏳ In progress
@@ -83,7 +82,6 @@ function IdeaRow({
 
         {/* Right side actions */}
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Delete button — only for user-written ideas */}
           {idea.source === "user" && (
             <button
               type="button"
@@ -97,7 +95,7 @@ function IdeaRow({
             </button>
           )}
 
-          {/* Start Chat — only for highlighted ideas */}
+          {/* Start Chat — idea has no chat yet */}
           {highlighted && !idea.in_progress && (
             <button
               type="button"
@@ -110,7 +108,7 @@ function IdeaRow({
             </button>
           )}
 
-          {/* Continue chat if in progress */}
+          {/* Continue — idea already has a chat in progress */}
           {highlighted && idea.in_progress && (
             <button
               type="button"
@@ -168,23 +166,19 @@ export default function IdeasPage() {
 
   const handleToggleFavourite = async (idea: Idea) => {
     const next = !idea.is_favourite;
-    // Optimistic update
     setIdeas((prev) => prev.map((i) => i.id === idea.id ? { ...i, is_favourite: next } : i));
     try {
       await toggleFavourite(idea.id, next);
     } catch {
-      // Revert on failure
       setIdeas((prev) => prev.map((i) => i.id === idea.id ? { ...i, is_favourite: !next } : i));
     }
   };
 
   const handleDelete = async (idea: Idea) => {
-    // Optimistic remove
     setIdeas((prev) => prev.filter((i) => i.id !== idea.id));
     try {
       await deleteIdea(idea.id);
     } catch (e: unknown) {
-      // Revert on failure
       setIdeas((prev) => [idea, ...prev]);
       console.error("Failed to delete idea:", e);
     }
@@ -192,10 +186,16 @@ export default function IdeasPage() {
 
   const handleStartChat = async (idea: Idea) => {
     try {
-      const chat = await confirmIdea(idea.id, idea.idea);
-      navigate(`/drafts?chat=${chat.id}`);
+      if (idea.in_progress && idea.chat_id) {
+        // ── Continue: chat already exists, just navigate to it ───────────
+        navigate(`/chat/${idea.chat_id}`);
+      } else {
+        // ── Start: no chat yet, create one then navigate ─────────────────
+        const chat = await confirmIdea(idea.id, idea.idea);
+        navigate(`/chat/${chat.id}`);
+      }
     } catch (e: unknown) {
-      console.error("Failed to start chat:", e);
+      console.error("Failed to start/continue chat:", e);
     }
   };
 
@@ -247,7 +247,6 @@ export default function IdeasPage() {
         </div>
       ) : (
         <>
-          {/* Highlighted section */}
           {highlighted.length > 0 && (
             <section>
               <h3 className="text-zinc-400 text-xs font-medium uppercase tracking-wider mb-3">
@@ -268,7 +267,6 @@ export default function IdeasPage() {
             </section>
           )}
 
-          {/* Rest */}
           {rest.length > 0 && (
             <section>
               <h3 className="text-zinc-400 text-xs font-medium uppercase tracking-wider mb-3">

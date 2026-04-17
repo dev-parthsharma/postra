@@ -1,10 +1,18 @@
 # backend/app/api/routes.py
 
-import os
 from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel, Field
+from typing import Optional
 
-from app.integrations.queries import fetch_user_count, insert_ideas, toggle_favourite, get_ideas_with_chat_status, create_chat, get_user_profile, delete_idea
+from app.integrations.queries import (
+    fetch_user_count,
+    insert_ideas,
+    toggle_favourite,
+    get_ideas_with_chat_status,
+    create_chat,
+    get_user_profile,
+    delete_idea,
+)
 from app.schemas.auth import AuthRequest
 from app.schemas.response import HealthResponse
 from app.services.auth_service import AuthService
@@ -12,7 +20,6 @@ from app.integrations.supabase_client import get_supabase_client, get_http_clien
 from app.services import ideas_service
 from app.core.settings import settings
 
-# Single router — no prefix so existing routes stay at their original paths
 router = APIRouter()
 
 
@@ -34,6 +41,7 @@ def get_current_user_id(authorization: str = Header(...)) -> str:
         print("JWT ERROR:", str(e))
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
+
 def get_supabase():
     return get_supabase_client()
 
@@ -51,8 +59,17 @@ class ConfirmIdeaRequest(BaseModel):
     idea_id: str
     idea_text: str
 
+class SendMessageRequest(BaseModel):
+    content: str = Field(..., min_length=1, max_length=2000)
 
-# ── Existing routes ───────────────────────────────────────────────────────────
+class SaveSelectionRequest(BaseModel):
+    chat_id:  str
+    hook:     Optional[str]       = None
+    caption:  Optional[str]       = None
+    hashtags: Optional[list[str]] = None
+
+
+# ── Health ────────────────────────────────────────────────────────────────────
 
 @router.get("/health", response_model=HealthResponse)
 def health() -> dict:
@@ -65,19 +82,18 @@ def supabase_test() -> dict:
     return {"message": "Supabase connection verified", "user_count": count}
 
 
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
 @router.post("/signup")
 def signup(payload: AuthRequest):
     try:
         user = AuthService.create_user(payload.email, payload.password)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return {
-        "user_id": user["id"],
-        "email": user["email"]
-    }
+    return {"user_id": user["id"], "email": user["email"]}
 
 
-# ── Ideas routes ──────────────────────────────────────────────────────────────
+# ── Ideas ─────────────────────────────────────────────────────────────────────
 
 @router.post("/ideas/generate")
 async def generate_ideas(
@@ -90,12 +106,11 @@ async def generate_ideas(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
-        print("RUNTIME ERROR:", str(e))  # ADD THIS
+        print("RUNTIME ERROR:", str(e))
         raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
-        print("UNEXPECTED ERROR:", str(e))  # ADD THIS
+        print("UNEXPECTED ERROR:", str(e))
         raise HTTPException(status_code=502, detail=str(e))
-
 
 
 @router.post("/ideas/save")
@@ -149,6 +164,7 @@ def list_ideas(
     ideas = ideas_service.handle_get_ideas(supabase, user_id)
     return {"ideas": ideas}
 
+
 @router.delete("/ideas/{idea_id}")
 def delete_idea_route(
     idea_id: str,
@@ -160,3 +176,95 @@ def delete_idea_route(
         return {"success": True}
     except RuntimeError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+# ── Chat ──────────────────────────────────────────────────────────────────────
+
+@router.get("/chat/{chat_id}")
+async def get_chat(
+    chat_id: str,
+    user_id: str = Depends(get_current_user_id),
+    supabase=Depends(get_supabase),
+):
+    """
+    Load a chat and its full message history.
+    If the chat has no messages yet, generates and saves the opening AI message
+    (hooks) automatically before returning.
+    Returns ChatDetail shape: chat fields + derived stage + messages[].
+    """
+    try:
+        chat = await ideas_service.handle_get_chat(supabase, chat_id, user_id)
+        return chat
+    except RuntimeError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        print("CHAT GET ERROR:", str(e))
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.post("/chat/{chat_id}/message")
+async def send_message(
+    chat_id: str,
+    body: SendMessageRequest,
+    user_id: str = Depends(get_current_user_id),
+    supabase=Depends(get_supabase),
+):
+    """
+    Save a user text message and return a contextual AI reply.
+    The AI reply is always type='text' here — it guides the user back
+    to the current stage action (selecting a hook/caption/hashtags).
+    Returns { user_message, ai_message }.
+    """
+    try:
+        result = await ideas_service.handle_send_message(
+            supabase, chat_id, user_id, body.content
+        )
+        return result
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        print("CHAT MESSAGE ERROR:", str(e))
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.post("/chat/select")
+async def save_selection(
+    body: SaveSelectionRequest,
+    user_id: str = Depends(get_current_user_id),
+    supabase=Depends(get_supabase),
+):
+    """
+    Called when user selects a hook, caption, or finalises hashtags.
+    Saves the selection to the posts table.
+    Generates the next AI message (next stage content or done message).
+    Returns { stage, ai_message }.
+
+    Only one of hook / caption / hashtags should be set per call.
+    """
+    # Validate exactly one selection type is provided
+    provided = sum([
+        body.hook is not None,
+        body.caption is not None,
+        body.hashtags is not None,
+    ])
+    if provided != 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Exactly one of hook, caption, or hashtags must be provided"
+        )
+
+    try:
+        result = await ideas_service.handle_save_selection(
+            supabase,
+            user_id=user_id,
+            chat_id=body.chat_id,
+            hook=body.hook,
+            caption=body.caption,
+            hashtags=body.hashtags,
+        )
+        return result
+    except (ValueError, RuntimeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        print("CHAT SELECT ERROR:", str(e))
+        raise HTTPException(status_code=502, detail=str(e))

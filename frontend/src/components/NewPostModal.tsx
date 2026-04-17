@@ -1,8 +1,9 @@
 // frontend/src/components/NewPostModal.tsx
 // Full New Post overlay. Uses useNewPost hook for all logic.
-// Matches existing Postra design: zinc-900 bg, orange-500 accent, zinc-800 borders.
+// On "done", navigates to /chat/:chatId instead of just closing.
 
 import { useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useNewPost } from "../hooks/useNewPost";
 import type { Chat, Idea } from "../lib/ideasApi";
 
@@ -36,7 +37,6 @@ function IdeaCard({
     >
       <p className="text-zinc-200 text-sm leading-relaxed pr-8">{idea.idea}</p>
 
-      {/* Favourite toggle — stopPropagation so clicking it doesn't also select */}
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onToggleFavourite(idea); }}
@@ -64,6 +64,8 @@ function IdeaCard({
 }
 
 export default function NewPostModal({ onClose, onChatCreated }: Props) {
+  const navigate = useNavigate();
+
   const {
     state,
     setInputText,
@@ -89,6 +91,14 @@ export default function NewPostModal({ onClose, onChatCreated }: Props) {
   }, []);
 
   const handleClose = () => { reset(); onClose(); };
+
+  // Navigate to chat page when a chat is created
+  const handleGoToChat = () => {
+    if (!state.createdChat) return;
+    reset();
+    onClose();
+    navigate(`/chat/${state.createdChat.id}`);
+  };
 
   const headerTitle: Record<typeof state.view, string> = {
     input: "New Post",
@@ -254,11 +264,13 @@ export default function NewPostModal({ onClose, onChatCreated }: Props) {
                   "{state.createdChat.title}"
                 </p>
               </div>
+              {/* ── CHANGED: was "Go to drafts →", now goes to /chat/:id ── */}
               <button
-                type="button" onClick={handleClose}
+                type="button"
+                onClick={handleGoToChat}
                 className="px-6 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-sm font-semibold transition-all duration-150 shadow-lg shadow-orange-500/25"
               >
-                Go to drafts →
+                Start creating →
               </button>
             </div>
           )}

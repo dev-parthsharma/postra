@@ -33,7 +33,8 @@ export interface Idea {
   is_favourite: boolean;
   created_at: string;
   updated_at: string;
-  in_progress?: boolean
+  in_progress?: boolean;
+  chat_id?: string | null;   // ← added: present when in_progress = true
 }
 
 export interface Chat {
