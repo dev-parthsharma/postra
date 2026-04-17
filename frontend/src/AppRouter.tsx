@@ -1,4 +1,5 @@
 // frontend/src/AppRouter.tsx
+// Updated to include Drafts, Scheduled, Published, Calendar, Settings pages
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useAuth } from "./hooks/useAuth";
@@ -12,19 +13,11 @@ import { supabase } from "./lib/supabase";
 import DashboardLayout from "./components/layout/DashboardLayout";
 import IdeasPage from "./pages/Ideas";
 import Chat from "./pages/Chat";
-
-// ── Placeholder page for unbuilt routes ──────────────────────────────────────
-function PlaceholderPage({ title }: { title: string }) {
-  return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-      <div className="text-center">
-        <div className="text-4xl mb-3">🚧</div>
-        <h2 className="text-xl font-semibold text-slate-700">{title}</h2>
-        <p className="text-slate-400 text-sm mt-1">Coming soon</p>
-      </div>
-    </div>
-  );
-}
+import DraftsPage from "./pages/Drafts";
+import ScheduledPage from "./pages/Scheduled";
+import PublishedPage from "./pages/Published";
+import CalendarPage from "./pages/Calendar";
+import SettingsPage from "./pages/Settings";
 
 // ── ProtectedRoute ────────────────────────────────────────────────────────────
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -155,12 +148,42 @@ export default function AppRouter() {
           }
         />
 
-        {/* Content Calendar — replaces /workflows */}
+        {/* Drafts */}
+        <Route
+          path="/drafts"
+          element={
+            <ProtectedRoute>
+              <DraftsPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Scheduled */}
+        <Route
+          path="/scheduled"
+          element={
+            <ProtectedRoute>
+              <ScheduledPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Published */}
+        <Route
+          path="/published"
+          element={
+            <ProtectedRoute>
+              <PublishedPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Calendar */}
         <Route
           path="/calendar"
           element={
             <ProtectedRoute>
-              <PlaceholderPage title="Content Calendar" />
+              <CalendarPage />
             </ProtectedRoute>
           }
         />
@@ -168,11 +191,15 @@ export default function AppRouter() {
         {/* Old /workflows redirect → /calendar */}
         <Route path="/workflows" element={<Navigate to="/calendar" replace />} />
 
-        {/* Placeholder routes */}
-        <Route path="/drafts"    element={<ProtectedRoute><PlaceholderPage title="Drafts" /></ProtectedRoute>} />
-        <Route path="/scheduled" element={<ProtectedRoute><PlaceholderPage title="Scheduled" /></ProtectedRoute>} />
-        <Route path="/published" element={<ProtectedRoute><PlaceholderPage title="Published" /></ProtectedRoute>} />
-        <Route path="/settings"  element={<ProtectedRoute><PlaceholderPage title="Settings" /></ProtectedRoute>} />
+        {/* Settings */}
+        <Route
+          path="/settings"
+          element={
+            <ProtectedRoute>
+              <SettingsPage />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Catch-all */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

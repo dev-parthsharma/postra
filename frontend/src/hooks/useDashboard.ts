@@ -35,6 +35,7 @@ export interface SavedIdea {
   id: string;
   idea: string;
   is_favourite: boolean;
+  chat_id: string | null;  // ← added: so CTA can link directly to chat
 }
 
 // CTA = "Post for Today"
@@ -63,7 +64,7 @@ function computeStreak(publishedDates: string[]): number {
     new Set(publishedDates.map((d) => d.slice(0, 10)))
   ).sort((a, b) => (a > b ? -1 : 1));
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateStr(new Date());
   // streak must include today or yesterday (grace for same-day check)
   if (days[0] !== today && days[0] !== getPrevDay(today)) return 0;
 
@@ -81,7 +82,15 @@ function computeStreak(publishedDates: string[]): number {
 function getPrevDay(dateStr: string): string {
   const d = new Date(dateStr);
   d.setDate(d.getDate() - 1);
-  return d.toISOString().slice(0, 10);
+  return localDateStr(d);
+}
+
+/** Returns YYYY-MM-DD in LOCAL time (not UTC) to avoid timezone shift bugs */
+export function localDateStr(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 // ── hook ───────────────────────────────────────────────────────────────────────
@@ -198,9 +207,10 @@ export function useDashboard() {
             .limit(1),
 
           // 9. saved / favourite ideas for CTA fallback
+          // ← also join chats so we know if a chat already exists for this idea
           supabase
             .from("ideas")
-            .select("id, idea, is_favourite")
+            .select("id, idea, is_favourite, chats(id)")
             .eq("user_id", user!.id)
             .or("is_favourite.eq.true,source.eq.user")
             .order("is_favourite", { ascending: false })
@@ -259,12 +269,19 @@ export function useDashboard() {
         } else {
           const savedIdea = savedIdeasRes.data?.[0];
           if (savedIdea) {
+            // chats join can be an array or single object — normalise it
+            const chatEntry = Array.isArray(savedIdea.chats)
+              ? savedIdea.chats[0]
+              : savedIdea.chats;
+            const chatId = chatEntry?.id ?? null;
+
             todayCTA = {
               type: "idea",
               idea: {
                 id: savedIdea.id,
                 idea: savedIdea.idea,
                 is_favourite: savedIdea.is_favourite,
+                chat_id: chatId,   // ← now properly populated
               },
             };
           }
