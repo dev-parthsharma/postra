@@ -2,8 +2,8 @@
 import { useNavigate } from "react-router-dom";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import StatsCards from "../components/dashboard/StatsCards";
-import RecentDrafts from "../components/dashboard/RecentDrafts";
-import ScheduledPosts from "../components/dashboard/ScheduledPosts";
+import ContentCalendar from "../components/dashboard/ContentCalendar";
+import TodayCTA from "../components/dashboard/TodayCTA";
 import { useDashboard } from "../hooks/useDashboard";
 import { useState } from "react";
 import NewPostModal from "../components/NewPostModal";
@@ -65,7 +65,6 @@ export default function Dashboard() {
           </p>
         </div>
 
-        {/* ← Changed: was navigate("/ideas"), now opens modal */}
         <button
           type="button"
           onClick={() => setShowNewPost(true)}
@@ -74,7 +73,7 @@ export default function Dashboard() {
           <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
           </svg>
-          Generate idea
+          Generate Idea
         </button>
       </div>
 
@@ -90,47 +89,31 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Stats Cards */}
+      {/* Stats Cards: posts this month + ideas saved (small) + streak (big) */}
       <StatsCards
         postsThisMonth={data?.postsThisMonth ?? 0}
-        savedWorkflows={data?.savedWorkflows ?? 0}
         ideasSaved={data?.ideasSaved ?? 0}
+        postStreak={data?.postStreak ?? 0}
         loading={loading}
       />
 
-      {/* Two-column panel: Recent Drafts + Scheduled Posts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-        <RecentDrafts
-          drafts={data?.recentDrafts ?? []}
-          loading={loading}
-        />
-        <ScheduledPosts
-          posts={data?.scheduledPosts ?? []}
-          scheduledThisWeek={scheduledThisWeek}
+      {/* Post for Today CTA */}
+      <div className="mt-4">
+        <TodayCTA
+          cta={data?.todayCTA ?? { type: "none" }}
           loading={loading}
         />
       </div>
 
-      {/* Quick actions row */}
-      <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { label: "New Idea", icon: "💡", to: "/ideas", color: "hover:bg-amber-50 hover:border-amber-200" },
-          { label: "Drafts", icon: "📝", to: "/drafts", color: "hover:bg-indigo-50 hover:border-indigo-200" },
-          { label: "Scheduled", icon: "📅", to: "/scheduled", color: "hover:bg-violet-50 hover:border-violet-200" },
-          { label: "Published", icon: "✅", to: "/published", color: "hover:bg-emerald-50 hover:border-emerald-200" },
-        ].map((action) => (
-          <button
-            key={action.to}
-            onClick={() => navigate(action.to)}
-            className={`bg-white border border-slate-100 rounded-xl px-4 py-3.5 flex items-center gap-2.5 text-sm font-medium text-slate-600 shadow-sm transition-all duration-150 ${action.color}`}
-          >
-            <span className="text-lg">{action.icon}</span>
-            <span>{action.label}</span>
-          </button>
-        ))}
+      {/* Content Calendar */}
+      <div className="mt-4">
+        <ContentCalendar
+          posts={data?.calendarPosts ?? []}
+          loading={loading}
+        />
       </div>
 
-      {/* ← Added: New Post modal */}
+      {/* Generate Idea modal */}
       {showNewPost && (
         <NewPostModal
           onClose={() => setShowNewPost(false)}

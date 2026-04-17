@@ -55,8 +55,8 @@ const navItems: NavItem[] = [
     ),
   },
   {
-    to: "/workflows",
-    label: "Workflows",
+    to: "/calendar",
+    label: "calendar",
     icon: (
       <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" />

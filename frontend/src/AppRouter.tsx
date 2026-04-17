@@ -5,7 +5,6 @@ import { useAuth } from "./hooks/useAuth";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import AuthCallback from "./pages/AuthCallback";
-import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import OnboardingModal from "./components/OnboardingModal";
 import UpdatePassword from "./pages/UpdatePassword";
@@ -112,7 +111,7 @@ export default function AppRouter() {
         <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/update-password" element={<UpdatePassword />} />
 
-        {/* Protected — redirect old / to /dashboard */}
+        {/* Protected — redirect / to /dashboard */}
         <Route
           path="/"
           element={
@@ -122,7 +121,7 @@ export default function AppRouter() {
           }
         />
 
-        {/* Dashboard (home) — also handles ?onboarding=true */}
+        {/* Dashboard */}
         <Route
           path="/dashboard"
           element={
@@ -144,7 +143,7 @@ export default function AppRouter() {
           }
         />
 
-        {/* ── Chat — sits inside DashboardLayout so sidebar is visible ── */}
+        {/* Chat */}
         <Route
           path="/chat/:chatId"
           element={
@@ -156,12 +155,24 @@ export default function AppRouter() {
           }
         />
 
+        {/* Content Calendar — replaces /workflows */}
+        <Route
+          path="/calendar"
+          element={
+            <ProtectedRoute>
+              <PlaceholderPage title="Content Calendar" />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Old /workflows redirect → /calendar */}
+        <Route path="/workflows" element={<Navigate to="/calendar" replace />} />
+
         {/* Placeholder routes */}
-        <Route path="/drafts" element={<ProtectedRoute><PlaceholderPage title="Drafts" /></ProtectedRoute>} />
+        <Route path="/drafts"    element={<ProtectedRoute><PlaceholderPage title="Drafts" /></ProtectedRoute>} />
         <Route path="/scheduled" element={<ProtectedRoute><PlaceholderPage title="Scheduled" /></ProtectedRoute>} />
         <Route path="/published" element={<ProtectedRoute><PlaceholderPage title="Published" /></ProtectedRoute>} />
-        <Route path="/workflows" element={<ProtectedRoute><PlaceholderPage title="Workflows" /></ProtectedRoute>} />
-        <Route path="/settings" element={<ProtectedRoute><PlaceholderPage title="Settings" /></ProtectedRoute>} />
+        <Route path="/settings"  element={<ProtectedRoute><PlaceholderPage title="Settings" /></ProtectedRoute>} />
 
         {/* Catch-all */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
