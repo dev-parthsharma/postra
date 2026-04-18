@@ -1,4 +1,7 @@
-// Single source of truth. ThemeProvider lives ONCE in App.tsx — already correct.
+// src/context/ThemeContext.tsx
+// Light is always the default. User can switch to dark manually.
+// Persists choice in localStorage. No OS-preference fallback (avoids unwanted dark default).
+
 import { createContext, useContext, useEffect, useState } from "react";
 
 export type Theme = "light" | "dark";
@@ -15,23 +18,32 @@ const ThemeContext = createContext<ThemeContextValue>({
   setTheme: () => {},
 });
 
-/** Read theme synchronously — prevents flash-of-wrong-theme on first render */
+/** Only read from localStorage — never fall back to OS preference. Light is the default. */
 function getInitialTheme(): Theme {
   try {
     const stored = localStorage.getItem("postra-theme") as Theme | null;
-    if (stored === "light" || stored === "dark") return stored;
-    if (window.matchMedia("(prefers-color-scheme: dark)").matches) return "dark";
-  } catch { /* localStorage blocked */ }
+    if (stored === "dark") return "dark";
+  } catch {
+    // localStorage blocked — ignore
+  }
   return "light";
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(getInitialTheme); // initialiser fn = synchronous
+  const [theme, setThemeState] = useState<Theme>(getInitialTheme);
 
   useEffect(() => {
     const root = document.documentElement;
-    theme === "dark" ? root.classList.add("dark") : root.classList.remove("dark");
-    try { localStorage.setItem("postra-theme", theme); } catch { /* ignore */ }
+    if (theme === "dark") {
+      root.classList.add("dark");
+    } else {
+      root.classList.remove("dark");
+    }
+    try {
+      localStorage.setItem("postra-theme", theme);
+    } catch {
+      // ignore
+    }
   }, [theme]);
 
   const setTheme = (t: Theme) => setThemeState(t);

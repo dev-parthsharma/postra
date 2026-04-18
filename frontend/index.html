@@ -1,38 +1,33 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
+    <!-- Anti-flicker: apply stored theme BEFORE React loads. Light is the default — no OS fallback. -->
     <script>
       (function () {
         try {
-          var t = localStorage.getItem("postra-theme");
-          if (t === "dark" || (!t && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
+          if (localStorage.getItem("postra-theme") === "dark") {
             document.documentElement.classList.add("dark");
           }
         } catch (e) {}
       })();
     </script>
-    
+
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <!-- Title (tab me jo dikhta hai) -->
     <title>Postra — Stop Overthinking. Start Posting.</title>
 
-    <!-- Favicon (tab icon) -->
     <link rel="icon" type="image/png" href="/postra-logo.png" />
 
-    <!-- SEO Meta -->
     <meta name="description" content="Postra is an AI-powered content system for Instagram creators. Generate ideas, hooks, scripts, captions, and post consistently without overthinking." />
     <meta name="keywords" content="Postra, Instagram AI tool, content creation, reels ideas, captions generator, creator tools" />
     <meta name="author" content="Parth Sharma" />
 
-    <!-- Open Graph (for sharing preview) -->
     <meta property="og:title" content="Postra — Stop Overthinking. Start Posting." />
     <meta property="og:description" content="Go from idea to post in minutes with AI. Scripts, hooks, captions, hashtags — all in one flow." />
     <meta property="og:image" content="/postra-logo.png" />
     <meta property="og:type" content="website" />
 
-    <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Postra — AI for Instagram creators" />
     <meta name="twitter:description" content="Create content faster with AI. Ideas, scripts, captions — all in one place." />
@@ -54,7 +49,6 @@
           observer.disconnect();
         }
       });
-
       observer.observe(document.getElementById("root"), { childList: true });
     </script>
   </body>

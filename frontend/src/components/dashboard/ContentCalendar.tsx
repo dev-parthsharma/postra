@@ -1,4 +1,4 @@
-// frontend/src/components/dashboard/ContentCalendar.tsx
+// src/components/dashboard/ContentCalendar.tsx
 import { useState, useRef } from "react";
 import type { CalendarPost } from "../../hooks/useDashboard";
 
@@ -9,7 +9,6 @@ interface ContentCalendarProps {
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-/** YYYY-MM-DD in LOCAL time — avoids UTC offset shifting dates by 1 day in IST */
 function localDateStr(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -17,7 +16,6 @@ function localDateStr(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-/** YYYY-MM in LOCAL time */
 function localMonthKey(date: Date): string {
   return localDateStr(date).slice(0, 7);
 }
@@ -60,7 +58,7 @@ function clampWeekToMonth(ws: Date, mFirst: Date, mLast: Date): Date {
 
 export default function ContentCalendar({ posts, loading }: ContentCalendarProps) {
   const today = new Date();
-  const todayStr = localDateStr(today);  // ← local time, not UTC
+  const todayStr = localDateStr(today);
 
   const [selectedMonth, setSelectedMonth] = useState<string>(localMonthKey(today));
   const [weekStart, setWeekStart] = useState<Date>(getWeekStart(today));
@@ -98,7 +96,6 @@ export default function ContentCalendar({ posts, loading }: ContentCalendarProps
 
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
-  // Index posts by LOCAL date string (post.scheduled_at is ISO — convert to local)
   const postsByDate: Record<string, CalendarPost[]> = {};
   for (const post of posts) {
     const key = localDateStr(new Date(post.scheduled_at));
@@ -114,20 +111,20 @@ export default function ContentCalendar({ posts, loading }: ContentCalendarProps
   })();
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+    <div className="bg-white dark:bg-[#1a1d27] rounded-2xl border border-slate-100 dark:border-white/[0.06] shadow-sm overflow-hidden">
 
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-white/[0.06]">
         <div>
-          <h2 className="text-sm font-semibold text-slate-800">Content Calendar</h2>
-          <p className="text-xs text-slate-400 mt-0.5">{weekLabel}</p>
+          <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Content Calendar</h2>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{weekLabel}</p>
         </div>
 
         <div className="flex items-center gap-2">
           <select
             value={selectedMonth}
             onChange={(e) => handleMonthChange(e.target.value)}
-            className="text-xs font-medium text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-indigo-300 cursor-pointer"
+            className="text-xs font-medium text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-white/[0.05] border border-slate-200 dark:border-white/[0.08] rounded-lg px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-indigo-300 dark:focus:ring-indigo-500/30 cursor-pointer"
           >
             {monthOptions.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
@@ -137,8 +134,7 @@ export default function ContentCalendar({ posts, loading }: ContentCalendarProps
           <button
             onClick={goToPrevWeek}
             disabled={isPrevDisabled}
-            className="w-7 h-7 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            aria-label="Previous week"
+            className="w-7 h-7 rounded-lg bg-slate-50 dark:bg-white/[0.05] border border-slate-200 dark:border-white/[0.08] flex items-center justify-center text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.08] hover:text-slate-700 dark:hover:text-slate-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
@@ -147,8 +143,7 @@ export default function ContentCalendar({ posts, loading }: ContentCalendarProps
           <button
             onClick={goToNextWeek}
             disabled={isNextDisabled}
-            className="w-7 h-7 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            aria-label="Next week"
+            className="w-7 h-7 rounded-lg bg-slate-50 dark:bg-white/[0.05] border border-slate-200 dark:border-white/[0.08] flex items-center justify-center text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.08] hover:text-slate-700 dark:hover:text-slate-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
@@ -157,14 +152,14 @@ export default function ContentCalendar({ posts, loading }: ContentCalendarProps
         </div>
       </div>
 
-      {/* Calendar grid */}
+      {/* Grid */}
       <div
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
-        className="grid grid-cols-7 divide-x divide-slate-100"
+        className="grid grid-cols-7 divide-x divide-slate-100 dark:divide-white/[0.04]"
       >
         {days.map((day, i) => {
-          const dateStr        = localDateStr(day);   // ← local, not UTC
+          const dateStr        = localDateStr(day);
           const isToday        = dateStr === todayStr;
           const isOutsideMonth = localMonthKey(day) !== selectedMonth;
           const dayPosts       = postsByDate[dateStr] ?? [];
@@ -172,18 +167,22 @@ export default function ContentCalendar({ posts, loading }: ContentCalendarProps
           return (
             <div
               key={dateStr}
-              className={`flex flex-col min-h-[100px] ${isToday ? "bg-indigo-50/60" : ""} ${isOutsideMonth ? "opacity-30" : ""}`}
+              className={`flex flex-col min-h-[100px] ${
+                isToday ? "bg-indigo-50/60 dark:bg-indigo-500/[0.06]" : ""
+              } ${isOutsideMonth ? "opacity-30" : ""}`}
             >
-              <div className={`flex flex-col items-center pt-3 pb-2 ${isToday ? "text-indigo-600" : "text-slate-400"}`}>
+              <div className={`flex flex-col items-center pt-3 pb-2 ${isToday ? "text-indigo-600 dark:text-indigo-400" : "text-slate-400 dark:text-slate-500"}`}>
                 <span className="text-[10px] font-semibold uppercase tracking-wide">{DAYS[i]}</span>
-                <span className={`text-sm font-bold mt-0.5 w-7 h-7 flex items-center justify-center rounded-full ${isToday ? "bg-indigo-600 text-white shadow-sm" : "text-slate-700"}`}>
+                <span className={`text-sm font-bold mt-0.5 w-7 h-7 flex items-center justify-center rounded-full ${
+                  isToday ? "bg-indigo-600 text-white shadow-sm" : "text-slate-700 dark:text-slate-200"
+                }`}>
                   {day.getDate()}
                 </span>
               </div>
 
               <div className="flex flex-col gap-1 px-1 pb-3">
                 {loading ? (
-                  i % 3 === 0 && <div className="h-5 bg-slate-100 rounded animate-pulse mx-0.5" />
+                  i % 3 === 0 && <div className="h-5 bg-slate-100 dark:bg-white/[0.05] rounded animate-pulse mx-0.5" />
                 ) : dayPosts.length === 0 ? null : (
                   dayPosts.map((post) => (
                     <div
@@ -191,8 +190,8 @@ export default function ContentCalendar({ posts, loading }: ContentCalendarProps
                       title={post.title}
                       className={`text-[10px] font-medium px-1.5 py-1 rounded-md leading-tight truncate ${
                         post.status === "published"
-                          ? "bg-emerald-100 text-emerald-700"
-                          : "bg-indigo-100 text-indigo-700"
+                          ? "bg-emerald-100 dark:bg-emerald-500/[0.15] text-emerald-700 dark:text-emerald-400"
+                          : "bg-indigo-100 dark:bg-indigo-500/[0.15] text-indigo-700 dark:text-indigo-400"
                       }`}
                     >
                       {post.title.length > 18 ? post.title.slice(0, 18) + "…" : post.title}
@@ -206,14 +205,14 @@ export default function ContentCalendar({ posts, loading }: ContentCalendarProps
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-4 px-5 py-3 border-t border-slate-100 bg-slate-50/50">
+      <div className="flex items-center gap-4 px-5 py-3 border-t border-slate-100 dark:border-white/[0.06] bg-slate-50/50 dark:bg-white/[0.02]">
         <div className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-sm bg-indigo-100 border border-indigo-200" />
-          <span className="text-[11px] text-slate-500">Scheduled</span>
+          <span className="w-2.5 h-2.5 rounded-sm bg-indigo-100 dark:bg-indigo-500/20 border border-indigo-200 dark:border-indigo-500/30" />
+          <span className="text-[11px] text-slate-500 dark:text-slate-400">Scheduled</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-sm bg-emerald-100 border border-emerald-200" />
-          <span className="text-[11px] text-slate-500">Published</span>
+          <span className="w-2.5 h-2.5 rounded-sm bg-emerald-100 dark:bg-emerald-500/20 border border-emerald-200 dark:border-emerald-500/30" />
+          <span className="text-[11px] text-slate-500 dark:text-slate-400">Published</span>
         </div>
       </div>
     </div>

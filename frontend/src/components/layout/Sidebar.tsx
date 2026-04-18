@@ -1,3 +1,4 @@
+// src/components/layout/Sidebar.tsx
 import { NavLink, useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 
@@ -93,14 +94,14 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 group ${
       isActive
-        ? "bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 shadow-sm"
-        : "text-slate-500 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-zinc-800 hover:text-slate-800 dark:hover:text-zinc-100"
+        ? "bg-indigo-50 dark:bg-indigo-500/[0.12] text-indigo-700 dark:text-indigo-400 shadow-sm"
+        : "text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/[0.05] hover:text-slate-800 dark:hover:text-slate-200"
     }`;
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
       {/* Logo */}
-      <div className="px-4 py-5 border-b border-slate-100 dark:border-zinc-800">
+      <div className="px-4 py-5 border-b border-slate-100 dark:border-white/[0.06]">
         <div className="flex items-center gap-2.5">
           <img
             src="https://postra-landing.vercel.app/assets/postra.png"
@@ -123,7 +124,11 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           <NavLink key={item.to} to={item.to} className={linkClass} onClick={onMobileClose}>
             {({ isActive }) => (
               <>
-                <span className={`transition-colors ${isActive ? "text-indigo-600 dark:text-indigo-400" : "text-slate-400 dark:text-zinc-500 group-hover:text-slate-600 dark:group-hover:text-zinc-300"}`}>
+                <span className={`transition-colors ${
+                  isActive
+                    ? "text-indigo-600 dark:text-indigo-400"
+                    : "text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300"
+                }`}>
                   {item.icon}
                 </span>
                 <span>{item.label}</span>
@@ -135,12 +140,16 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
       </nav>
 
       {/* Bottom */}
-      <div className="px-3 py-3 border-t border-slate-100 dark:border-zinc-800 space-y-0.5">
+      <div className="px-3 py-3 border-t border-slate-100 dark:border-white/[0.06] space-y-0.5">
         {bottomItems.map((item) => (
           <NavLink key={item.to} to={item.to} className={linkClass} onClick={onMobileClose}>
             {({ isActive }) => (
               <>
-                <span className={`transition-colors ${isActive ? "text-indigo-600 dark:text-indigo-400" : "text-slate-400 dark:text-zinc-500 group-hover:text-slate-600 dark:group-hover:text-zinc-300"}`}>
+                <span className={`transition-colors ${
+                  isActive
+                    ? "text-indigo-600 dark:text-indigo-400"
+                    : "text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300"
+                }`}>
                   {item.icon}
                 </span>
                 <span>{item.label}</span>
@@ -151,7 +160,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
 
         <button
           onClick={handleSignOut}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 dark:text-zinc-500 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400 transition-all duration-150 group"
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 dark:text-slate-500 hover:bg-red-50 dark:hover:bg-red-500/[0.08] hover:text-red-600 dark:hover:text-red-400 transition-all duration-150 group"
         >
           <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
@@ -165,15 +174,15 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   return (
     <>
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex flex-col w-60 min-h-screen bg-white dark:bg-zinc-900 border-r border-slate-100 dark:border-zinc-800 fixed left-0 top-0 z-30">
+      <aside className="hidden lg:flex flex-col w-60 min-h-screen bg-white dark:bg-[#1a1d27] border-r border-slate-100 dark:border-white/[0.06] fixed left-0 top-0 z-30 transition-colors duration-200">
         <SidebarContent />
       </aside>
 
       {/* Mobile overlay */}
       {mobileOpen && (
         <>
-          <div className="fixed inset-0 bg-black/30 z-40 lg:hidden" onClick={onMobileClose} />
-          <aside className="fixed left-0 top-0 bottom-0 w-64 bg-white dark:bg-zinc-900 z-50 shadow-2xl lg:hidden flex flex-col">
+          <div className="fixed inset-0 bg-black/30 dark:bg-black/60 z-40 lg:hidden" onClick={onMobileClose} />
+          <aside className="fixed left-0 top-0 bottom-0 w-64 bg-white dark:bg-[#1a1d27] z-50 shadow-2xl lg:hidden flex flex-col transition-colors duration-200">
             <div className="flex items-center justify-between px-4 pt-4 pb-2">
               <div className="flex items-center gap-2">
                 <img
@@ -184,7 +193,10 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
                 />
                 <span className="font-bold text-slate-900 dark:text-white">Postra</span>
               </div>
-              <button onClick={onMobileClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-500 dark:text-zinc-400">
+              <button
+                onClick={onMobileClose}
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/[0.06] text-slate-500 dark:text-slate-400"
+              >
                 <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
