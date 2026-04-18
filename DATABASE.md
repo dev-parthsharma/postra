@@ -35,16 +35,17 @@ JOIN:
 - messages.chat_id -> chats.id
 
 4) user_profile
-- id                : uuid
-- name              : text
-- niche             : text
-- tone              : text
-- style             : text
-- goal              : text
-- niche_changed_at  : timestamptz
-- created_at        : timestamptz
-- updated_at        : timestamptz
-- is_onboarded      : bool
+- id                 : uuid
+- name               : text
+- niche              : text
+- tone               : text
+- style              : text
+- goal               : text
+- preferred_language : text
+- niche_changed_at   : timestamptz
+- created_at         : timestamptz
+- updated_at         : timestamptz
+- is_onboarded       : bool
 
 JOIN:
 - user_profile.id -> auth.users.id

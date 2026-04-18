@@ -1,6 +1,7 @@
 // frontend/src/pages/Settings.tsx
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useTheme } from "../context/ThemeContext";
 import DashboardLayout from "../components/layout/DashboardLayout";
 
 interface UserProfile {
@@ -131,6 +132,7 @@ export default function SettingsPage() {
   const [showBanner, setShowBanner] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
 
+  const { theme, setTheme } = useTheme();
   // Password change
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
@@ -354,6 +356,48 @@ export default function SettingsPage() {
             {/* ── Account Section ── */}
             {section === "account" && (
               <div className="space-y-5">
+                {/* Appearance */}
+                <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
+                  <h2 className="text-sm font-semibold text-slate-800 mb-1">Appearance</h2>
+                  <p className="text-xs text-slate-400 mb-5">Choose how Postra looks to you.</p>
+                  <div className="flex gap-3">
+                    {(["light", "dark"] as const).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setTheme(t)}
+                        className={`flex-1 flex flex-col items-center gap-3 px-4 py-4 rounded-xl border-2 transition-all duration-200 ${
+                          theme === t
+                            ? "border-indigo-500 bg-indigo-50 shadow-sm"
+                            : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                        }`}
+                      >
+                        <div className={`w-full h-12 rounded-lg overflow-hidden border flex ${t === "light" ? "border-slate-200" : "border-zinc-700"}`}>
+                          <div className={`w-8 flex-shrink-0 ${t === "light" ? "bg-white" : "bg-zinc-900"} flex flex-col gap-1 p-1.5`}>
+                            {[...Array(3)].map((_, i) => (
+                              <div key={i} className={`h-1 rounded-full ${t === "light" ? "bg-slate-200" : "bg-zinc-700"} ${i === 0 ? "w-4" : "w-2.5"}`} />
+                            ))}
+                          </div>
+                          <div className={`flex-1 ${t === "light" ? "bg-slate-50" : "bg-zinc-800"} flex flex-col gap-1 p-1.5`}>
+                            <div className={`h-1.5 rounded ${t === "light" ? "bg-slate-200" : "bg-zinc-600"} w-3/4`} />
+                            <div className={`h-1.5 rounded ${t === "light" ? "bg-indigo-100" : "bg-indigo-900"} w-1/2`} />
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {theme === t && (
+                            <span className="inline-flex w-3.5 h-3.5 rounded-full bg-indigo-500 items-center justify-center">
+                              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5"><path d="M20 6L9 17l-5-5" /></svg>
+                            </span>
+                          )}
+                          <span className={`text-xs font-semibold ${theme === t ? "text-indigo-700" : "text-slate-500"}`}>
+                            {t === "light" ? "☀️ Light" : "🌙 Dark"}
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Change password */}
                 <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
                   <h2 className="text-sm font-semibold text-slate-800 mb-4">Change Password</h2>
