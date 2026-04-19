@@ -1,5 +1,4 @@
 // frontend/src/AppRouter.tsx
-// Updated to include Drafts, Scheduled, Published, Calendar, Settings pages
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useAuth } from "./hooks/useAuth";
@@ -8,6 +7,7 @@ import Signup from "./pages/Signup";
 import AuthCallback from "./pages/AuthCallback";
 import Dashboard from "./pages/Dashboard";
 import OnboardingModal from "./components/OnboardingModal";
+import LanguagePreferenceModal from "./components/LanguagePreferenceModal";
 import UpdatePassword from "./pages/UpdatePassword";
 import { supabase } from "./lib/supabase";
 import DashboardLayout from "./components/layout/DashboardLayout";
@@ -49,15 +49,28 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 // ── HomeWithOnboarding ────────────────────────────────────────────────────────
+// Shows onboarding modal for new users.
+// Language preference modal is shown ONCE right after onboarding completes — never again.
 function HomeWithOnboarding() {
   const { user } = useAuth();
   const location = useLocation();
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
+  const [currentLanguage, setCurrentLanguage] = useState("english");
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (params.get("onboarding") === "true") {
-      setShowOnboarding(true);
+      // Double-check: only show if profile truly incomplete
+      if (!user) return;
+      supabase
+        .from("user_profile")
+        .select("niche")
+        .eq("id", user.id)
+        .single()
+        .then(({ data }) => {
+          if (!data || !data.niche) setShowOnboarding(true);
+        });
       return;
     }
 
@@ -66,21 +79,41 @@ function HomeWithOnboarding() {
     const checkProfile = async () => {
       const { data: profile } = await supabase
         .from("user_profile")
-        .select("id, niche")
+        .select("id, niche, preferred_language, is_onboarded")
         .eq("id", user.id)
         .single();
 
+      // Show onboarding if user has never completed it
       if (!profile || !profile.niche) {
         setShowOnboarding(true);
+        return;
       }
     };
 
     checkProfile();
   }, [location.search, user]);
 
-  const handleOnboardingComplete = () => {
+  const handleOnboardingComplete = async () => {
     setShowOnboarding(false);
-    window.history.replaceState({}, "", "/dashboard");
+    // Clear the onboarding param from URL
+    const url = new URL(window.location.href);
+    url.searchParams.delete("onboarding");
+    window.history.replaceState({}, "", url.toString());
+
+    // Show language modal immediately after onboarding — this is the one-time trigger
+    if (user) {
+      const { data: profile } = await supabase
+        .from("user_profile")
+        .select("preferred_language")
+        .eq("id", user.id)
+        .single();
+      setCurrentLanguage(profile?.preferred_language ?? "english");
+      setTimeout(() => setShowLanguageModal(true), 400);
+    }
+  };
+
+  const handleLanguageModalClose = () => {
+    setShowLanguageModal(false);
   };
 
   return (
@@ -88,6 +121,13 @@ function HomeWithOnboarding() {
       <Dashboard />
       {showOnboarding && user && (
         <OnboardingModal userId={user.id} onComplete={handleOnboardingComplete} />
+      )}
+      {showLanguageModal && user && !showOnboarding && (
+        <LanguagePreferenceModal
+          userId={user.id}
+          currentLanguage={currentLanguage}
+          onClose={handleLanguageModalClose}
+        />
       )}
     </>
   );

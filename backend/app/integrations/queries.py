@@ -209,24 +209,56 @@ def get_post_for_chat(supabase, chat_id: str) -> Optional[dict]:
 def get_user_profile(supabase, user_id: str) -> Optional[dict]:
     response = (
         supabase.table("user_profile")
-        .select("niche, tone, style, goal")
+        .select("niche, tone, style, goal, preferred_language")
         .eq("id", user_id)
         .single()
         .execute()
     )
-    return response.data
+    if not response.data:
+        return None
+    data = response.data
+    # Normalise: expose as "language" so service layer stays unchanged
+    data["language"] = data.pop("preferred_language", "english") or "english"
+    return data
 
 
 # ── Utility ───────────────────────────────────────────────────────────────────
 
 def delete_idea(supabase, idea_id: str, user_id: str) -> None:
+    # Confirm the idea exists and belongs to this user
+    idea_check = (
+        supabase.table("ideas")
+        .select("id, source")
+        .eq("id", idea_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not idea_check.data:
+        raise RuntimeError("Idea not found or not owned by user")
+
+    idea = idea_check.data[0]
+    if idea.get("source") != "user":
+        raise RuntimeError("Only user-written ideas can be deleted")
+
+    # If a chat exists for this idea, delete it first.
+    # Supabase cascade will handle messages → the chat deletion cascades to messages.
+    chat_check = (
+        supabase.table("chats")
+        .select("id")
+        .eq("idea_id", idea_id)
+        .execute()
+    )
+    if chat_check.data:
+        for chat in chat_check.data:
+            supabase.table("chats").delete().eq("id", chat["id"]).execute()
+
+    # Now delete the idea itself
     response = (
         supabase.table("ideas")
         .delete()
         .eq("id", idea_id)
         .eq("user_id", user_id)
-        .eq("source", "user")
         .execute()
     )
     if not response.data:
-        raise RuntimeError("Idea not found or not deletable")
+        raise RuntimeError("Failed to delete idea")

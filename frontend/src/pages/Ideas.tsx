@@ -175,10 +175,20 @@ export default function IdeasPage() {
   };
 
   const handleDelete = async (idea: Idea) => {
+    // If idea has an active chat, warn the user that chat + messages will also be deleted
+    if (idea.in_progress) {
+      const confirmed = window.confirm(
+        "This idea has an active chat. Deleting it will also delete the chat and all its messages. Continue?"
+      );
+      if (!confirmed) return;
+    }
+
+    // Optimistic remove
     setIdeas((prev) => prev.filter((i) => i.id !== idea.id));
     try {
       await deleteIdea(idea.id);
     } catch (e: unknown) {
+      // Revert and show error
       setIdeas((prev) => [idea, ...prev]);
       console.error("Failed to delete idea:", e);
     }

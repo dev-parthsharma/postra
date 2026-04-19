@@ -1,14 +1,12 @@
 // frontend/src/lib/chatApi.ts
 // Typed wrapper around the backend chat endpoints.
-// Follows the same pattern as ideasApi.ts.
 //
 // Real DB schema:
 //   messages: id, chat_id, sequence, content, source ('user'|'assistant'),
-//             type ('text'|'hooks'|'captions'|'hashtags'), metadata (jsonb), created_at
-//   chats:    id, idea_id, title, created_at, updated_at, user_id  (no stage column)
-//   posts:    id, chat_id, idea, hook, caption, hashtags (jsonb), status, user_id, ...
+//             type ('text'), metadata (jsonb), created_at
+//   chats:    id, idea_id, title, created_at, updated_at, user_id
 //
-// `stage` is derived by the backend from the message history, not stored on chats.
+// `stage` is derived by the backend from message history.
 
 import { supabase } from "./supabase";
 
@@ -36,33 +34,10 @@ async function handleResponse<T>(res: Response): Promise<T> {
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type MessageSource = "user" | "assistant";
-export type MessageType   = "text" | "hooks" | "captions" | "hashtags";
+export type MessageType   = "text";
 
-// Derived by backend from message history — not a real DB column on chats
-export type ChatStage = "hooks" | "captions" | "hashtags" | "done";
-
-export interface Hook {
-  id: string;    // e.g. "hook_1"
-  style: string; // e.g. "Bold", "Question", "Story"
-  text: string;
-}
-
-export interface Caption {
-  id: string;     // e.g. "caption_short"
-  length: string; // e.g. "Short", "Medium", "Long"
-  text: string;
-}
-
-export interface Hashtag {
-  tag: string; // e.g. "#fitness"
-}
-
-// Stored in messages.metadata (jsonb) — only one key populated per message
-export interface MessageMetadata {
-  hooks?:    Hook[];
-  captions?: Caption[];
-  hashtags?: Hashtag[];
-}
+// Stage is now freeform — 'intro' | 'chatting'
+export type ChatStage = string;
 
 // Mirrors the messages table row exactly
 export interface ChatMessage {
@@ -70,9 +45,9 @@ export interface ChatMessage {
   chat_id:    string;
   sequence:   number;
   content:    string;
-  source:     MessageSource;        // 'user' | 'assistant'
-  type:       MessageType;          // 'text' | 'hooks' | 'captions' | 'hashtags'
-  metadata:   MessageMetadata | null;
+  source:     MessageSource;
+  type:       MessageType;
+  metadata:   null;
   created_at: string;
 }
 
@@ -82,17 +57,10 @@ export interface ChatDetail {
   user_id:    string;
   idea_id:    string;
   title:      string;
-  stage:      ChatStage; // computed by backend, not stored
+  stage:      ChatStage;
   created_at: string;
   updated_at: string;
   messages:   ChatMessage[];
-}
-
-export interface SaveSelectionRequest {
-  chat_id:   string;
-  hook?:     string;
-  caption?:  string;
-  hashtags?: string[]; // e.g. ["#fitness", "#reels"]
 }
 
 // ── API calls ─────────────────────────────────────────────────────────────────
@@ -107,7 +75,7 @@ export async function getChat(chatId: string): Promise<ChatDetail> {
 
 /**
  * Send a user text message.
- * Backend saves it, calls AI, saves AI reply with correct type + metadata.
+ * Backend saves it, calls AI, saves AI reply.
  * Returns both the saved user message and the AI reply.
  */
 export async function sendMessage(
@@ -122,14 +90,13 @@ export async function sendMessage(
   return handleResponse<{ user_message: ChatMessage; ai_message: ChatMessage }>(res);
 }
 
-/**
- * Called when user selects a hook, caption, or finalises hashtags.
- * Backend saves selection to posts table, generates next AI message.
- * Returns the updated derived stage and the next AI message.
- */
-export async function saveSelection(
-  body: SaveSelectionRequest
-): Promise<{ stage: ChatStage; ai_message: ChatMessage }> {
+// Kept for legacy compatibility
+export async function saveSelection(body: {
+  chat_id: string;
+  hook?: string;
+  caption?: string;
+  hashtags?: string[];
+}): Promise<{ stage: ChatStage; ai_message: ChatMessage }> {
   const res = await fetch(`${BASE}/api/chat/select`, {
     method: "POST",
     headers: await authHeaders(),

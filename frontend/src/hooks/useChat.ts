@@ -1,36 +1,28 @@
 // frontend/src/hooks/useChat.ts
-// All state + async logic for the Chat page.
-// The Chat page component stays purely presentational.
-//
-// Field mapping to real DB:
-//   message.source     = 'user' | 'assistant'   (not role)
-//   message.type       = 'text' | 'hooks' | 'captions' | 'hashtags'
-//   message.metadata   = { hooks?, captions?, hashtags? }  (not payload)
-//   stage              = derived by backend, returned on ChatDetail + saveSelection
+// Simplified chat hook — just load, send message, scroll.
+// No forced hook/caption/hashtag selection flow.
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { getChat, sendMessage, saveSelection } from "../lib/chatApi";
-import type { ChatMessage, ChatDetail, ChatStage } from "../lib/chatApi";
+import { getChat, sendMessage } from "../lib/chatApi";
+import type { ChatMessage, ChatDetail } from "../lib/chatApi";
 
 export interface UseChatState {
   chat:      ChatDetail | null;
   messages:  ChatMessage[];
-  stage:     ChatStage;
+  stage:     string;
   inputText: string;
-  loading:   boolean;   // initial page load
-  sending:   boolean;   // user sent a message, waiting for AI
-  selecting: boolean;   // user clicked Select on a card
+  loading:   boolean;
+  sending:   boolean;
   error:     string | null;
 }
 
 const INITIAL: UseChatState = {
   chat:      null,
   messages:  [],
-  stage:     "hooks",
+  stage:     "intro",
   inputText: "",
   loading:   true,
   sending:   false,
-  selecting: false,
   error:     null,
 };
 
@@ -80,7 +72,7 @@ export function useChat(chatId: string) {
   // ── Send a user message ───────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
     const text = state.inputText.trim();
-    if (!text || state.sending || state.stage === "done") return;
+    if (!text || state.sending) return;
 
     patch({ sending: true, error: null, inputText: "" });
 
@@ -89,96 +81,18 @@ export function useChat(chatId: string) {
       setState((s) => ({
         ...s,
         messages: [...s.messages, user_message, ai_message],
-        // if the AI message type advances the stage, update it
-        stage: (ai_message.type === "hooks" || ai_message.type === "captions" || ai_message.type === "hashtags")
-          ? ai_message.type
-          : s.stage,
+        stage: "chatting",
         sending: false,
       }));
     } catch (e: unknown) {
       patch({ sending: false, error: (e as Error).message });
     }
-  }, [chatId, state.inputText, state.sending, state.stage]);
-
-  // ── Select a hook ─────────────────────────────────────────────────────────
-  const handleSelectHook = useCallback(
-    async (hookText: string) => {
-      if (!state.chat || state.selecting) return;
-      patch({ selecting: true, error: null });
-
-      try {
-        const { stage, ai_message } = await saveSelection({
-          chat_id: state.chat.id,
-          hook: hookText,
-        });
-        setState((s) => ({
-          ...s,
-          messages: [...s.messages, ai_message],
-          stage,
-          selecting: false,
-        }));
-      } catch (e: unknown) {
-        patch({ selecting: false, error: (e as Error).message });
-      }
-    },
-    [state.chat, state.selecting]
-  );
-
-  // ── Select a caption ──────────────────────────────────────────────────────
-  const handleSelectCaption = useCallback(
-    async (captionText: string) => {
-      if (!state.chat || state.selecting) return;
-      patch({ selecting: true, error: null });
-
-      try {
-        const { stage, ai_message } = await saveSelection({
-          chat_id: state.chat.id,
-          caption: captionText,
-        });
-        setState((s) => ({
-          ...s,
-          messages: [...s.messages, ai_message],
-          stage,
-          selecting: false,
-        }));
-      } catch (e: unknown) {
-        patch({ selecting: false, error: (e as Error).message });
-      }
-    },
-    [state.chat, state.selecting]
-  );
-
-  // ── Select hashtags ───────────────────────────────────────────────────────
-  const handleSelectHashtags = useCallback(
-    async (tags: string[]) => {
-      if (!state.chat || state.selecting) return;
-      patch({ selecting: true, error: null });
-
-      try {
-        const { stage, ai_message } = await saveSelection({
-          chat_id: state.chat.id,
-          hashtags: tags,
-        });
-        setState((s) => ({
-          ...s,
-          messages: [...s.messages, ai_message],
-          stage,
-          selecting: false,
-        }));
-      } catch (e: unknown) {
-        patch({ selecting: false, error: (e as Error).message });
-      }
-    },
-    [state.chat, state.selecting]
-  );
+  }, [chatId, state.inputText, state.sending]);
 
   return {
     state,
     bottomRef,
     setInputText,
     handleSend,
-    handleSelectHook,
-    handleSelectCaption,
-    handleSelectHashtags,
   };
 }

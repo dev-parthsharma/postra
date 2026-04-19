@@ -10,6 +10,7 @@ interface UserProfile {
   tone: string;
   style: string;
   goal: string;
+  language: "english" | "hinglish";
 }
 
 const NICHES = ["Fitness", "Finance", "Fashion", "Food", "Tech", "Travel", "Education", "Lifestyle", "Comedy", "Business", "Gaming", "Beauty"];
@@ -123,9 +124,55 @@ function SaveBanner({ show }: { show: boolean }) {
   );
 }
 
+// ── Language toggle ───────────────────────────────────────────────────────────
+
+function LanguageToggle({
+  value,
+  onChange,
+}: {
+  value: "english" | "hinglish";
+  onChange: (v: "english" | "hinglish") => void;
+}) {
+  return (
+    <div className="flex gap-3">
+      {(["english", "hinglish"] as const).map((lang) => (
+        <button
+          key={lang}
+          type="button"
+          onClick={() => onChange(lang)}
+          className={`flex-1 flex flex-col items-center gap-2 px-4 py-4 rounded-xl border-2 transition-all duration-200 ${
+            value === lang
+              ? "border-indigo-500 bg-indigo-50 shadow-sm"
+              : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+          }`}
+        >
+          <span className="text-2xl">{lang === "english" ? "🇬🇧" : "🇮🇳"}</span>
+          <div className="text-center">
+            <p className={`text-sm font-semibold ${value === lang ? "text-indigo-700" : "text-slate-700"}`}>
+              {lang === "english" ? "English" : "Hinglish"}
+            </p>
+            <p className={`text-xs mt-0.5 ${value === lang ? "text-indigo-500" : "text-slate-400"}`}>
+              {lang === "english" ? "Standard English" : "Hindi + English mix"}
+            </p>
+          </div>
+          {value === lang && (
+            <span className="inline-flex w-4 h-4 rounded-full bg-indigo-500 items-center justify-center">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5">
+                <path d="M20 6L9 17l-5-5" />
+              </svg>
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const [section, setSection] = useState<Section>("profile");
-  const [profile, setProfile] = useState<UserProfile>({ name: "", niche: "", tone: "", style: "", goal: "" });
+  const [profile, setProfile] = useState<UserProfile>({
+    name: "", niche: "", tone: "", style: "", goal: "", language: "english",
+  });
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -133,14 +180,11 @@ export default function SettingsPage() {
   const [userId, setUserId] = useState<string | null>(null);
 
   const { theme, setTheme } = useTheme();
-  // Password change
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [pwError, setPwError] = useState<string | null>(null);
   const [pwSuccess, setPwSuccess] = useState(false);
   const [pwLoading, setPwLoading] = useState(false);
-
-  // Delete account modal
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteText, setDeleteText] = useState("");
 
@@ -153,11 +197,18 @@ export default function SettingsPage() {
 
       const { data } = await supabase
         .from("user_profile")
-        .select("name, niche, tone, style, goal")
+        .select("name, niche, tone, style, goal, preferred_language")
         .eq("id", user.id)
         .single();
 
-      if (data) setProfile(data as UserProfile);
+      if (data) setProfile({
+        name: data.name ?? "",
+        niche: data.niche ?? "",
+        tone: data.tone ?? "",
+        style: data.style ?? "",
+        goal: data.goal ?? "",
+        language: (data.preferred_language ?? "english") as "english" | "hinglish",
+      });
       setLoading(false);
     };
     load();
@@ -166,9 +217,11 @@ export default function SettingsPage() {
   const handleSave = async () => {
     if (!userId) return;
     setSaving(true);
+    const { language, ...rest } = profile;
     await supabase.from("user_profile").upsert({
       id: userId,
-      ...profile,
+      ...rest,
+      preferred_language: language,
       updated_at: new Date().toISOString(),
     });
     setSaving(false);
@@ -193,21 +246,18 @@ export default function SettingsPage() {
   return (
     <DashboardLayout>
       <div className="max-w-3xl mx-auto">
-        {/* Header */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
           <p className="text-slate-500 text-sm mt-1">Manage your profile, content preferences, and account.</p>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-6">
-          {/* Sidebar Nav */}
           <div className="sm:w-44 flex-shrink-0">
             <div className="bg-white border border-slate-100 rounded-2xl p-2 shadow-sm">
               <SectionNav active={section} onChange={setSection} />
             </div>
           </div>
 
-          {/* Content */}
           <div className="flex-1 min-w-0">
 
             {/* ── Profile Section ── */}
@@ -227,7 +277,6 @@ export default function SettingsPage() {
                     </div>
                   ) : (
                     <>
-                      {/* Avatar */}
                       <div className="flex items-center gap-4 mb-6">
                         <div className="w-14 h-14 rounded-2xl bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-lg flex-shrink-0">
                           {avatarInitials}
@@ -259,6 +308,20 @@ export default function SettingsPage() {
                             className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-400 cursor-not-allowed"
                           />
                           <p className="text-xs text-slate-400 mt-1">Email cannot be changed here.</p>
+                        </div>
+
+                        {/* Language preference */}
+                        <div>
+                          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
+                            Postra Output Language
+                          </label>
+                          <p className="text-xs text-slate-400 mb-3">
+                            Choose how Postra talks to you in chats. English is the default.
+                          </p>
+                          <LanguageToggle
+                            value={profile.language}
+                            onChange={(v) => setProfile((p) => ({ ...p, language: v }))}
+                          />
                         </div>
                       </div>
                     </>
@@ -296,7 +359,6 @@ export default function SettingsPage() {
                   </div>
                 ) : (
                   <>
-                    {/* Niche */}
                     <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
                       <div className="flex items-center gap-2 mb-1">
                         <h3 className="text-sm font-semibold text-slate-800">Your Niche</h3>
@@ -306,7 +368,6 @@ export default function SettingsPage() {
                       <OptionGrid options={NICHES as any} value={profile.niche as any} onChange={(v) => setProfile((p) => ({ ...p, niche: v }))} cols={3} />
                     </div>
 
-                    {/* Tone */}
                     <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
                       <div className="flex items-center gap-2 mb-1">
                         <h3 className="text-sm font-semibold text-slate-800">Your Tone</h3>
@@ -316,7 +377,6 @@ export default function SettingsPage() {
                       <OptionGrid options={TONES as any} value={profile.tone as any} onChange={(v) => setProfile((p) => ({ ...p, tone: v }))} cols={2} />
                     </div>
 
-                    {/* Style */}
                     <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
                       <div className="flex items-center gap-2 mb-1">
                         <h3 className="text-sm font-semibold text-slate-800">Content Style</h3>
@@ -326,7 +386,6 @@ export default function SettingsPage() {
                       <OptionGrid options={STYLES as any} value={profile.style as any} onChange={(v) => setProfile((p) => ({ ...p, style: v }))} cols={2} />
                     </div>
 
-                    {/* Goal */}
                     <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
                       <div className="flex items-center gap-2 mb-1">
                         <h3 className="text-sm font-semibold text-slate-800">Primary Goal</h3>
@@ -479,10 +538,8 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Save banner */}
       <SaveBanner show={showBanner} />
 
-      {/* Delete confirm modal */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center px-4" onClick={() => setShowDeleteConfirm(false)}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
