@@ -11,6 +11,7 @@ import {
   type Idea,
   type Chat,
 } from "../lib/ideasApi";
+import { classifyIdea } from "../utils/ideaValidator";
 
 export type ModalView =
   | "input"       // initial: write idea or generate
@@ -60,10 +61,15 @@ export function useNewPost(onDone?: (chat: Chat) => void) {
     const text = state.inputText.trim();
     if (!text) return;
 
+    // Block gibberish before hitting the API
+    if (classifyIdea(text) === "gibberish") {
+      patch({ error: "__gibberish__" });
+      return;
+    }
+
     patch({ saving: true, error: null });
     try {
       const saved = await saveUserIdea(text);
-      // Treat the saved idea as "selected" and move to confirm step
       patch({ saving: false, selectedIdea: saved, view: "confirming" });
     } catch (e: unknown) {
       patch({ saving: false, error: (e as Error).message });
@@ -85,7 +91,6 @@ export function useNewPost(onDone?: (chat: Chat) => void) {
   // ── Favourite toggle ───────────────────────────────────────────────────────
 
   const handleToggleFavourite = useCallback(async (idea: Idea) => {
-    // Optimistic update
     const next = !idea.is_favourite;
     setState((s) => ({
       ...s,
@@ -96,7 +101,6 @@ export function useNewPost(onDone?: (chat: Chat) => void) {
     try {
       await toggleFavourite(idea.id, next);
     } catch {
-      // Revert on failure
       setState((s) => ({
         ...s,
         generatedIdeas: s.generatedIdeas.map((i) =>

@@ -3,8 +3,9 @@
 // Also has a "Save idea for later" section — input only, no AI.
 
 import { useEffect, useState, useCallback } from "react";
-import { listIdeas, saveUserIdea, toggleFavourite, confirmIdea, deleteIdea, type Idea } from "../lib/ideasApi";
+import { listIdeas, saveUserIdea, toggleFavourite, confirmIdea, deleteIdea, ApiError, type Idea } from "../lib/ideasApi";
 import { useNavigate } from "react-router-dom";
+import { classifyIdea } from "../utils/ideaValidator";
 
 function Spinner({ small = false }: { small?: boolean }) {
   return (
@@ -95,7 +96,6 @@ function IdeaRow({
             </button>
           )}
 
-          {/* Start Chat — idea has no chat yet */}
           {highlighted && !idea.in_progress && (
             <button
               type="button"
@@ -108,7 +108,6 @@ function IdeaRow({
             </button>
           )}
 
-          {/* Continue — idea already has a chat in progress */}
           {highlighted && idea.in_progress && (
             <button
               type="button"
@@ -133,6 +132,8 @@ export default function IdeasPage() {
   const [saveText, setSaveText] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [isGibberish, setIsGibberish] = useState(false);
+  const [confusedWarning, setConfusedWarning] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   const fetchIdeas = useCallback(async () => {
@@ -151,14 +152,42 @@ export default function IdeasPage() {
   const handleSave = async () => {
     const text = saveText.trim();
     if (!text) return;
-    setSaving(true);
+
+    // Reset all error states
     setSaveError(null);
+    setIsGibberish(false);
+    setConfusedWarning(null);
+
+    // Step 1: fast client-side gibberish check (no round trip)
+    if (classifyIdea(text) === "gibberish") {
+      setIsGibberish(true);
+      return;
+    }
+
+    setSaving(true);
     try {
       const saved = await saveUserIdea(text);
+
+      // Idea was saved — add to list regardless
       setIdeas((prev) => [saved, ...prev]);
       setSaveText("");
+
+      // If the backend flagged it as CONFUSED, surface the warning
+      if (saved.warning && saved.message) {
+        setConfusedWarning(saved.message);
+      }
     } catch (e: unknown) {
-      setSaveError((e as Error).message);
+      if (e instanceof ApiError) {
+        if (e.type === "INVALID") {
+          // Server-side gibberish catch (passed client check but failed AI check)
+          setIsGibberish(true);
+        } else {
+          // Any other API error — show the readable message string
+          setSaveError(e.message);
+        }
+      } else {
+        setSaveError((e as Error).message);
+      }
     } finally {
       setSaving(false);
     }
@@ -175,20 +204,16 @@ export default function IdeasPage() {
   };
 
   const handleDelete = async (idea: Idea) => {
-    // If idea has an active chat, warn the user that chat + messages will also be deleted
     if (idea.in_progress) {
       const confirmed = window.confirm(
         "This idea has an active chat. Deleting it will also delete the chat and all its messages. Continue?"
       );
       if (!confirmed) return;
     }
-
-    // Optimistic remove
     setIdeas((prev) => prev.filter((i) => i.id !== idea.id));
     try {
       await deleteIdea(idea.id);
     } catch (e: unknown) {
-      // Revert and show error
       setIdeas((prev) => [idea, ...prev]);
       console.error("Failed to delete idea:", e);
     }
@@ -197,10 +222,8 @@ export default function IdeasPage() {
   const handleStartChat = async (idea: Idea) => {
     try {
       if (idea.in_progress && idea.chat_id) {
-        // ── Continue: chat already exists, just navigate to it ───────────
         navigate(`/chat/${idea.chat_id}`);
       } else {
-        // ── Start: no chat yet, create one then navigate ─────────────────
         const chat = await confirmIdea(idea.id, idea.idea);
         navigate(`/chat/${chat.id}`);
       }
@@ -226,10 +249,19 @@ export default function IdeasPage() {
           <input
             type="text"
             value={saveText}
-            onChange={(e) => { setSaveText(e.target.value); setSaveError(null); }}
+            onChange={(e) => {
+              setSaveText(e.target.value);
+              setSaveError(null);
+              setIsGibberish(false);
+              setConfusedWarning(null);
+            }}
             onKeyDown={(e) => { if (e.key === "Enter" && saveText.trim()) handleSave(); }}
             placeholder="Write your idea here…"
-            className="flex-1 bg-zinc-800 border border-zinc-700 focus:border-orange-500 rounded-xl px-4 py-2.5 text-zinc-200 text-sm placeholder-zinc-600 outline-none transition-colors duration-150"
+            className={`flex-1 bg-zinc-800 border rounded-xl px-4 py-2.5 text-zinc-200 text-sm placeholder-zinc-600 outline-none transition-colors duration-150 ${
+              isGibberish
+                ? "border-red-500/60 focus:border-red-500"
+                : "border-zinc-700 focus:border-orange-500"
+            }`}
           />
           <button
             type="button"
@@ -241,7 +273,53 @@ export default function IdeasPage() {
             {saving ? "Saving…" : "Save"}
           </button>
         </div>
-        {saveError && <p className="text-red-400 text-xs mt-2">{saveError}</p>}
+
+        {/* Gibberish error — shown for both client-side AND server INVALID */}
+        {isGibberish && (
+          <div className="mt-3 flex items-start gap-3 p-3.5 rounded-xl bg-red-500/10 border border-red-500/20">
+            <span className="text-base leading-none flex-shrink-0 mt-0.5">⚠️</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-red-400 text-sm font-semibold">Invalid text</p>
+              <p className="text-zinc-500 text-xs mt-0.5">
+                This doesn't look like a real idea. Write something meaningful, or let AI generate ideas for you.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsGibberish(false);
+                  setSaveText("");
+                  navigate("/dashboard");
+                }}
+                className="mt-2 text-xs font-semibold text-orange-400 hover:text-orange-300 transition-colors"
+              >
+                ✨ Generate ideas on dashboard →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* CONFUSED warning — idea was saved but is vague */}
+        {confusedWarning && (
+          <div className="mt-3 flex items-start gap-3 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
+            <span className="text-base leading-none flex-shrink-0 mt-0.5">🤔</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-amber-400 text-sm font-semibold">Idea saved, but it's a bit vague</p>
+              <p className="text-zinc-500 text-xs mt-0.5">{confusedWarning}</p>
+              <button
+                type="button"
+                onClick={() => setConfusedWarning(null)}
+                className="mt-2 text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Generic API error — readable string, never [object Object] */}
+        {saveError && (
+          <p className="text-red-400 text-xs mt-2">{saveError}</p>
+        )}
       </section>
 
       {/* ── Ideas list ────────────────────────────────────────────────────── */}

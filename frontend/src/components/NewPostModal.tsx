@@ -92,7 +92,6 @@ export default function NewPostModal({ onClose, onChatCreated }: Props) {
 
   const handleClose = () => { reset(); onClose(); };
 
-  // Navigate to chat page when a chat is created
   const handleGoToChat = () => {
     if (!state.createdChat) return;
     reset();
@@ -106,6 +105,8 @@ export default function NewPostModal({ onClose, onChatCreated }: Props) {
     confirming: "Confirm idea",
     done: "Ready to go!",
   };
+
+  const isGibberishError = state.error === "__gibberish__";
 
   return (
     <div
@@ -155,12 +156,39 @@ export default function NewPostModal({ onClose, onChatCreated }: Props) {
                   }}
                   rows={3}
                   placeholder="e.g. A day-in-my-life reel showing my morning routine as a student..."
-                  className="w-full bg-zinc-800 border border-zinc-700 focus:border-orange-500 rounded-xl px-4 py-3 text-zinc-200 text-sm placeholder-zinc-600 outline-none resize-none transition-colors duration-150"
+                  className={`w-full bg-zinc-800 border rounded-xl px-4 py-3 text-zinc-200 text-sm placeholder-zinc-600 outline-none resize-none transition-colors duration-150 ${
+                    isGibberishError
+                      ? "border-red-500/60 focus:border-red-500"
+                      : "border-zinc-700 focus:border-orange-500"
+                  }`}
                 />
                 <p className="text-zinc-600 text-xs mt-1">⌘ + Enter to save your idea</p>
               </div>
 
-              {state.error && (
+              {/* Gibberish error */}
+              {isGibberishError && (
+                <div className="flex items-start gap-3 p-3.5 rounded-xl bg-red-500/10 border border-red-500/20">
+                  <span className="text-base leading-none flex-shrink-0 mt-0.5">⚠️</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-red-400 text-sm font-semibold">Invalid text</p>
+                    <p className="text-zinc-500 text-xs mt-0.5">
+                      That doesn't look like a real idea. Write something meaningful, or let AI generate ideas for you.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleGenerate}
+                      disabled={state.generating}
+                      className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-orange-400 hover:text-orange-300 transition-colors"
+                    >
+                      {state.generating ? <Spinner /> : "✨"}
+                      {state.generating ? "Generating…" : "Generate ideas instead →"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Normal API error */}
+              {state.error && !isGibberishError && (
                 <p className="text-red-400 text-sm bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2">
                   {state.error}
                 </p>
@@ -264,7 +292,6 @@ export default function NewPostModal({ onClose, onChatCreated }: Props) {
                   "{state.createdChat.title}"
                 </p>
               </div>
-              {/* ── CHANGED: was "Go to drafts →", now goes to /chat/:id ── */}
               <button
                 type="button"
                 onClick={handleGoToChat}

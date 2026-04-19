@@ -18,6 +18,7 @@ from app.schemas.response import HealthResponse
 from app.services.auth_service import AuthService
 from app.integrations.supabase_client import get_supabase_client, get_http_client
 from app.services import ideas_service
+from app.services.ideas_service import IdeaInvalid, IdeaConfused
 from app.core.settings import settings
 
 router = APIRouter()
@@ -114,14 +115,49 @@ async def generate_ideas(
 
 
 @router.post("/ideas/save")
-def save_user_idea(
+async def save_user_idea(
     body: SaveIdeaRequest,
     user_id: str = Depends(get_current_user_id),
     supabase=Depends(get_supabase),
 ):
+    """
+    Validate idea text BEFORE saving to the database.
+
+    Responses:
+      200 → { idea }                                   ← VALID, saved
+      200 → { idea, warning, suggestion }              ← CONFUSED, saved with warning
+      422 → { detail: { error, type } }                ← INVALID, NOT saved
+    """
     try:
-        idea = ideas_service.handle_save_user_idea(supabase, user_id, body.idea)
+        idea = await ideas_service.handle_save_user_idea(supabase, user_id, body.idea)
         return {"idea": idea}
+
+    except IdeaInvalid:
+        # Hard block — do NOT save, do NOT start chat
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "invalid text",
+                "type": "INVALID",
+                "message": "That doesn't look like a real idea. Write something meaningful.",
+            },
+        )
+
+    except IdeaConfused as e:
+        # Soft warning — idea was still saved (validation passed Step 1 but AI flagged vague)
+        # We need to save it here because handle_save_user_idea raises before saving on IdeaConfused.
+        # Re-run save without validation to persist the vague-but-real idea.
+        from app.integrations.queries import insert_ideas
+        saved = insert_ideas(supabase, user_id, [body.idea.strip()], source="user")
+        idea = saved[0]
+        return {
+            "idea": idea,
+            "warning": True,
+            "type": "CONFUSED",
+            "message": "Bhai ye kya likh diya 😂 — this idea is a bit vague.",
+            "suggestion": "Do you want me to help clarify this idea?",
+        }
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -147,6 +183,10 @@ def confirm_idea(
     user_id: str = Depends(get_current_user_id),
     supabase=Depends(get_supabase),
 ):
+    """
+    Create a chat from an already-saved idea.
+    Idea was validated at save time — no re-validation needed.
+    """
     try:
         chat = ideas_service.handle_confirm_idea(
             supabase, user_id, body.idea_id, body.idea_text
@@ -186,12 +226,6 @@ async def get_chat(
     user_id: str = Depends(get_current_user_id),
     supabase=Depends(get_supabase),
 ):
-    """
-    Load a chat and its full message history.
-    If the chat has no messages yet, generates and saves the opening AI message
-    (hooks) automatically before returning.
-    Returns ChatDetail shape: chat fields + derived stage + messages[].
-    """
     try:
         chat = await ideas_service.handle_get_chat(supabase, chat_id, user_id)
         return chat
@@ -209,12 +243,6 @@ async def send_message(
     user_id: str = Depends(get_current_user_id),
     supabase=Depends(get_supabase),
 ):
-    """
-    Save a user text message and return a contextual AI reply.
-    The AI reply is always type='text' here — it guides the user back
-    to the current stage action (selecting a hook/caption/hashtags).
-    Returns { user_message, ai_message }.
-    """
     try:
         result = await ideas_service.handle_send_message(
             supabase, chat_id, user_id, body.content
@@ -233,15 +261,6 @@ async def save_selection(
     user_id: str = Depends(get_current_user_id),
     supabase=Depends(get_supabase),
 ):
-    """
-    Called when user selects a hook, caption, or finalises hashtags.
-    Saves the selection to the posts table.
-    Generates the next AI message (next stage content or done message).
-    Returns { stage, ai_message }.
-
-    Only one of hook / caption / hashtags should be set per call.
-    """
-    # Validate exactly one selection type is provided
     provided = sum([
         body.hook is not None,
         body.caption is not None,

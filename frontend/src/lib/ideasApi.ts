@@ -15,12 +15,47 @@ async function authHeaders(): Promise<HeadersInit> {
   };
 }
 
+// ── Custom error so callers can inspect the validation type ──────────────────
+
+export class ApiError extends Error {
+  type?: string;       // "INVALID" | "CONFUSED" | undefined
+  warning?: boolean;   // true when backend returned a CONFUSED warning
+
+  constructor(message: string, type?: string, warning?: boolean) {
+    super(message);
+    this.name = "ApiError";
+    this.type = type;
+    this.warning = warning;
+  }
+}
+
+// ── Response handler ──────────────────────────────────────────────────────────
+
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail ?? `Request failed: ${res.status}`);
+    const detail = body.detail;
+
+    // detail can be a string OR a structured object { error, type, message }
+    if (detail && typeof detail === "object") {
+      const msg: string = detail.message ?? detail.error ?? `Request failed: ${res.status}`;
+      throw new ApiError(msg, detail.type);
+    }
+
+    throw new ApiError(
+      typeof detail === "string" ? detail : `Request failed: ${res.status}`,
+    );
   }
-  return res.json();
+
+  const data = await res.json() as T & { warning?: boolean; type?: string; message?: string };
+
+  // Backend may return 200 with a warning flag for CONFUSED ideas
+  if ((data as any).warning) {
+    // Attach metadata to the returned object so callers can surface the warning
+    return data;
+  }
+
+  return data;
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -34,7 +69,11 @@ export interface Idea {
   created_at: string;
   updated_at: string;
   in_progress?: boolean;
-  chat_id?: string | null;   // ← added: present when in_progress = true
+  chat_id?: string | null;
+  // Present on CONFUSED saves
+  warning?: boolean;
+  type?: string;
+  message?: string;
 }
 
 export interface Chat {
@@ -63,8 +102,14 @@ export async function saveUserIdea(idea: string): Promise<Idea> {
     headers: await authHeaders(),
     body: JSON.stringify({ idea }),
   });
-  const data = await handleResponse<{ idea: Idea }>(res);
-  return data.idea;
+  const data = await handleResponse<{ idea: Idea; warning?: boolean; type?: string; message?: string }>(res);
+  // Attach any warning metadata directly onto the idea object for the caller
+  return {
+    ...data.idea,
+    warning: data.warning,
+    type: data.type,
+    message: data.message,
+  };
 }
 
 export async function toggleFavourite(ideaId: string, isFavourite: boolean): Promise<Idea> {

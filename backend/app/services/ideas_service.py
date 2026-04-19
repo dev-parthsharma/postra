@@ -1,8 +1,7 @@
 # backend/app/services/ideas_service.py
-# Business logic layer for the New Post feature.
 
 import json
-import random
+import re
 import httpx
 from typing import Optional
 from app.core.settings import settings
@@ -21,11 +20,181 @@ from app.integrations.queries import (
     get_post_for_chat,
 )
 
-
 # ── AI config ─────────────────────────────────────────────────────────────────
 
 GROQ_API_KEY = settings.groq_api_key
 AI_MODEL     = "llama-3.1-8b-instant"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# IDEA VALIDATION  (Step 1: heuristic, Step 2: AI classifier)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Expanded real-word whitelist (English + Hinglish)
+_REAL_WORDS = {
+    # English common
+    "a","an","the","and","or","but","for","in","is","it","my","you","i","we","he","she","they",
+    "this","that","how","what","why","when","with","from","have","has","do","does","will","can",
+    "not","are","was","were","be","been","being","had","if","then","than","so","as","at","by",
+    "on","to","up","out","off","get","go","make","use","want","need","like","know","see","think",
+    "come","give","take","say","tell","ask","feel","try","keep","let","put","set","run","turn",
+    "show","move","live","play","work","love","start","stop","call","open","help","look","find",
+    "reel","post","video","story","content","idea","about","create","share","brand","niche",
+    "audience","followers","growth","viral","hook","caption","edit","trend","morning","night",
+    "fitness","food","travel","fashion","tech","business","money","health","skin","workout",
+    "recipe","vlog","life","day","week","tips","guide","hack","routine","challenge","review",
+    "behind","scenes","tutorial","your","their","our","its","his","her","more","some","all",
+    "just","also","here","there","now","then","new","old","good","bad","best","top","real",
+    "free","easy","quick","simple","great","every","each","both","through","people","things",
+    "time","year","even","most","over","such","after","before","never","always","often","still",
+    "only","much","many","same","last","long","down","back","first","way","into","than","very",
+    "me","him","us","them","who","which","its","mine","yours","ours","theirs","am","been",
+    # Hinglish
+    "hai","hain","kya","toh","bhi","koi","aur","jo","se","ko","ka","ki","ke","mein","par","pe",
+    "ne","ho","hoga","karo","bhai","yaar","tera","mera","meri","teri","accha","nahi","sab",
+    "kuch","ek","wala","wali","wale","raha","rahi","gaya","gayi","lega","legi","dena","lena",
+    "abhi","phir","bas","sahi","bahut","thoda","zyada","tum","aap","woh","apna","apni","dekh",
+    "kar","kab","kaise","kyun","pehle","baad","sath","lekin","agar","matlab","samajh","baat",
+    "kaam","din","raat","kal","aaj","solid","badiya","mast","dope","fire","crazy","vibe","chill",
+    "dil","mann","soch","log","baar","tha","thi","the","hogi","honge","nhi","bro","dude",
+}
+
+
+def _looks_like_real_word(word: str) -> bool:
+    """Heuristic: does this token look like a real word?"""
+    w = word.lower()
+    if not w:
+        return True
+    if len(w) <= 2:
+        return True          # short tokens — benefit of doubt
+    if w in _REAL_WORDS:
+        return True
+
+    # Vowel ratio: genuine words have ≥15 % vowels
+    vowels = sum(1 for c in w if c in "aeiou")
+    if vowels / len(w) < 0.15:
+        return False
+
+    # Consonant density: >85 % consonants is suspicious
+    consonants = sum(1 for c in w if c.isalpha() and c not in "aeiou")
+    if len(w) > 0 and consonants / len(w) > 0.85:
+        return False
+
+    return True
+
+
+def _is_gibberish(text: str) -> bool:
+    """
+    Pure-Python, no-LLM heuristic.
+    Returns True when the text is clearly random/keyboard-mash.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return True
+
+    tokens = re.findall(r"[a-zA-Z]+", stripped.lower())
+    if not tokens:
+        return True                  # only numbers/symbols
+
+    meaningful = [t for t in tokens if len(t) > 1]
+    if not meaningful:
+        return True
+
+    real_ratio = sum(1 for t in meaningful if _looks_like_real_word(t)) / len(meaningful)
+    if real_ratio < 0.45:
+        return True
+
+    # Also block if the whole text is shorter than 3 words total
+    if len(stripped.split()) < 3:
+        # 1-2 words might still be valid if they're recognisable
+        if real_ratio < 0.8:
+            return True
+
+    return False
+
+
+async def _classify_with_ai(text: str) -> str:
+    """
+    Strict single-label AI classifier.
+    Returns: "INVALID" | "CONFUSED" | "VALID"
+    Falls back to "VALID" on any API error so we don't block good ideas.
+    """
+    if not GROQ_API_KEY:
+        return "VALID"      # can't call AI — let it through
+
+    prompt = (
+        "You are a strict content evaluator.\n"
+        "Rules:\n"
+        "- If text is gibberish → return: INVALID\n"
+        "- If idea is unclear/confusing → return: CONFUSED\n"
+        "- If idea is clear and usable → return: VALID\n"
+        "DO NOT explain. DO NOT add extra words. ONLY return one word.\n\n"
+        f"Text: \"{text}\""
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {GROQ_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": AI_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.0,
+                    "max_tokens": 10,
+                },
+            )
+
+        if response.status_code != 200:
+            return "VALID"  # fail open
+
+        raw = response.json()["choices"][0]["message"]["content"].strip().upper()
+
+        # Normalise: extract first word in case model added punctuation
+        first_word = re.split(r"[\s.,!?]", raw)[0]
+        if first_word in ("INVALID", "CONFUSED", "VALID"):
+            return first_word
+        return "VALID"      # unexpected label — fail open
+
+    except Exception:
+        return "VALID"      # network/parse error — fail open
+
+
+class IdeaInvalid(Exception):
+    """Raised when an idea is INVALID (gibberish). Do not save, do not chat."""
+    pass
+
+
+class IdeaConfused(Exception):
+    """Raised when an idea is CONFUSED (too vague). Save but warn the user."""
+    pass
+
+
+async def validate_idea_text(text: str) -> None:
+    """
+    Validate idea text BEFORE any DB write.
+
+    Raises:
+        IdeaInvalid  — caller must return HTTP 422, never save
+        IdeaConfused — caller should surface a warning; saving is still OK
+    """
+    # ── Step 1: Fast heuristic (no LLM, no latency) ───────────────────────
+    if _is_gibberish(text):
+        raise IdeaInvalid("Idea text is gibberish")
+
+    # ── Step 2: AI strict classifier ─────────────────────────────────────
+    label = await _classify_with_ai(text)
+
+    if label == "INVALID":
+        raise IdeaInvalid("Idea text classified as invalid by AI")
+
+    if label == "CONFUSED":
+        raise IdeaConfused("Idea text is too vague or unclear")
+
+    # label == "VALID" → falls through, no exception
 
 
 # ── Idea generation ───────────────────────────────────────────────────────────
@@ -117,12 +286,21 @@ async def handle_generate_ideas(supabase, user_id: str) -> list[dict]:
     return saved
 
 
-def handle_save_user_idea(supabase, user_id: str, idea_text: str) -> dict:
+async def handle_save_user_idea(supabase, user_id: str, idea_text: str) -> dict:
+    """
+    Validate FIRST, then save.
+    Raises IdeaInvalid or IdeaConfused before touching the DB.
+    """
     idea_text = idea_text.strip()
     if not idea_text:
-        raise ValueError("Idea text cannot be empty")
+        raise IdeaInvalid("Idea text cannot be empty")
     if len(idea_text) > 500:
         raise ValueError("Idea text too long (max 500 characters)")
+
+    # ── VALIDATION GATE: runs before any DB write ─────────────────────────
+    await validate_idea_text(idea_text)
+    # If we reach here, the idea is VALID (or CONFUSED — warning was raised
+    # as IdeaConfused which the caller catches and surfaces to the user).
 
     saved = insert_ideas(supabase, user_id, [idea_text], source="user")
     return saved[0]
@@ -133,6 +311,10 @@ def handle_toggle_favourite(supabase, user_id: str, idea_id: str, is_favourite: 
 
 
 def handle_confirm_idea(supabase, user_id: str, idea_id: str, idea_text: str) -> dict:
+    """
+    Create a chat from an already-saved idea.
+    The idea was validated when it was saved, so no re-validation needed here.
+    """
     title = idea_text.split("\n")[0].strip()
     if not title:
         title = idea_text[:100].strip()
@@ -143,7 +325,7 @@ def handle_get_ideas(supabase, user_id: str) -> list[dict]:
     return get_ideas_with_chat_status(supabase, user_id)
 
 
-# ── Chat AI helpers ───────────────────────────────────────────────────────────
+# ── AI call helper ────────────────────────────────────────────────────────────
 
 async def _call_groq(messages: list[dict], max_tokens: int = 600) -> str:
     if not GROQ_API_KEY:
@@ -170,92 +352,57 @@ async def _call_groq(messages: list[dict], max_tokens: int = 600) -> str:
     return response.json()["choices"][0]["message"]["content"].strip()
 
 
-def _parse_json_response(raw: str) -> dict:
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip()
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        raise ValueError(f"AI returned malformed JSON: {raw}")
+# ── Stage derivation ──────────────────────────────────────────────────────────
+
+def _derive_stage(messages: list[dict]) -> str:
+    if not messages:
+        return "intro"
+    has_user_message = any(m["source"] == "user" for m in messages)
+    if not has_user_message:
+        return "intro"
+    return "chatting"
 
 
 # ── Smart opening message generator ──────────────────────────────────────────
 
 async def _generate_opening_message(idea_title: str, language: str = "english") -> str:
     """
-    Generate a warm, idea-aware opening message for a new chat session.
-    The message reads the idea and responds naturally — not generic hype.
-    language: "english" or "hinglish"
+    Generate a context-aware opening AI message for a VALID idea.
+    Called only after the idea has passed validation.
     """
-
     if language == "hinglish":
-        prompt = f"""You are Postra, a friendly and sharp Instagram content assistant who talks in Hinglish (mix of Hindi and English, casual tone). 
-
-A creator just opened a chat for this idea:
-"{idea_title}"
-
-Write a SHORT, warm, idea-aware opening message (2-3 sentences max). 
-- Actually read the idea and react to it genuinely
-- Don't be over-the-top (avoid "yaar ye toh game changer hai!!" if the idea is mediocre or vague)
-- Be encouraging but honest and natural
-- Ask if they want to start working on it (hooks, caption, etc.)
-- Use casual Hinglish — mix Hindi words naturally into English sentences
-- No emojis overload, max 1-2 emojis
-
-Examples of good openers:
-- "Ye idea actually kaafi solid hai — {idea_title[:30]}... iska angle interesting lagta hai. Hooks generate karu?"
-- "Hmm, {idea_title[:25]}... ye niche mein kaam kar sakta hai. Shuru karte hain?"
-- "Decent idea hai yaar. Thoda polish karna padega but definitely postable hai. Hooks try karein?"
-- "Ooh ye wala concept fresh lagta hai! Straight to hooks jayein ya pehle thoda brainstorm?"
-
-Return ONLY the message text, nothing else."""
-
+        prompt = (
+            f"Tu Postra hai — sharp aur honest Instagram content assistant jo Hinglish mein baat karta hai.\n\n"
+            f"Creator ka idea hai: \"{idea_title}\"\n\n"
+            f"Ye idea already validated hai — valid aur clear hai.\n\n"
+            f"Short, genuine opening message likho (2-3 sentences):\n"
+            f"- Idea ko actually read karke react karo — honest reaction, over-the-top hype nahi\n"
+            f"- Creator ko feel ho ki Postra ne genuinely samjha\n"
+            f"- Hooks/caption ke liye offer karo\n"
+            f"- Casual Hinglish, 1-2 emojis max\n\n"
+            f"Examples:\n"
+            f"- \"Ye concept kaafi solid lagta hai 🔥 — seedha hooks pe chalein?\"\n"
+            f"- \"Decent idea hai bhai — postable definitely hai. Hooks se start karein?\"\n\n"
+            f"Return ONLY the message."
+        )
     else:
-        prompt = f"""You are Postra, a friendly and sharp Instagram content assistant.
+        prompt = (
+            f"You are Postra — a sharp, genuine Instagram content assistant.\n\n"
+            f"Creator's idea: \"{idea_title}\"\n\n"
+            f"This idea has already been validated — it is clear and usable.\n\n"
+            f"Write a short, genuine opening message (2-3 sentences):\n"
+            f"- Actually react to the idea — honest, not over-the-top hype\n"
+            f"- Make them feel Postra truly gets it\n"
+            f"- Offer to start with hooks/caption\n"
+            f"- Conversational, 1-2 emojis max\n\n"
+            f"Examples:\n"
+            f"- \"This has a solid angle 🔥 — the kind of content people actually stop for. Want to hit hooks?\"\n"
+            f"- \"Decent idea, honestly — it'll work well if we nail the hook. Want to start there?\"\n\n"
+            f"Return ONLY the message."
+        )
 
-A creator just opened a chat for this idea:
-"{idea_title}"
-
-Write a SHORT, warm, idea-aware opening message (2-3 sentences max).
-- Actually read the idea and react to it genuinely
-- Don't be over-the-top (avoid "This is a GAME CHANGER!!" if the idea is mediocre or vague)
-- Be encouraging but honest and natural
-- Ask if they want to start working on it (hooks, caption, etc.)
-- Max 1-2 emojis, conversational tone
-
-Examples of good openers:
-- "This idea has a solid angle — the '{idea_title[:30]}' angle is something people actually care about. Want me to generate some hooks?"
-- "Interesting concept. This could work really well for your niche. Ready to start building it out?"
-- "Love the direction here. It's specific enough to stand out. Should we kick off with hooks?"
-- "This one's got potential — it's fresh without being too niche. Want to dive in?"
-- "Hmm, I can see this working. The concept is clear and relatable. Shall we start with hooks?"
-
-Return ONLY the message text, nothing else."""
-
-    raw = await _call_groq([{"role": "user", "content": prompt}], max_tokens=150)
-    # Clean up any quotes the model might wrap around the response
+    raw = await _call_groq([{"role": "user", "content": prompt}], max_tokens=120)
     return raw.strip().strip('"').strip("'")
-
-
-# ── Stage derivation ──────────────────────────────────────────────────────────
-
-def _derive_stage(messages: list[dict]) -> str:
-    """
-    Derive current stage — now simplified.
-    'intro' = fresh chat, only the opening message exists.
-    'chatting' = user has started conversing.
-    """
-    if not messages:
-        return "intro"
-
-    has_user_message = any(m["source"] == "user" for m in messages)
-    if not has_user_message:
-        return "intro"
-
-    return "chatting"
 
 
 # ── Chat orchestration ────────────────────────────────────────────────────────
@@ -268,7 +415,6 @@ async def handle_get_chat(supabase, chat_id: str, user_id: str) -> dict:
     messages = get_messages_for_chat(supabase, chat_id)
     stage    = _derive_stage(messages)
 
-    # Fresh chat — generate and save a smart opening message
     if not messages:
         profile  = get_user_profile(supabase, user_id) or {}
         language = profile.get("language", "english")
@@ -300,7 +446,6 @@ async def handle_send_message(supabase, chat_id: str, user_id: str, content: str
     profile  = get_user_profile(supabase, user_id) or {}
     language = profile.get("language", "english")
 
-    # Save user message
     seq      = get_next_sequence(supabase, chat_id)
     user_msg = insert_message(
         supabase,
@@ -312,7 +457,6 @@ async def handle_send_message(supabase, chat_id: str, user_id: str, content: str
         metadata=None,
     )
 
-    # Build conversation history for context-aware AI reply
     history = [
         {
             "role": "assistant" if m["source"] == "assistant" else "user",
@@ -323,17 +467,21 @@ async def handle_send_message(supabase, chat_id: str, user_id: str, content: str
     history.append({"role": "user", "content": content})
 
     if language == "hinglish":
-        system_prompt = f"""You are Postra, a helpful Instagram content assistant who talks in Hinglish (casual mix of Hindi and English).
-You are helping a creator work on this post idea: "{chat['title']}"
-Keep responses short (2-4 sentences), practical, and friendly. 
-If they ask for hooks, captions, or hashtags — generate them directly.
-Don't use excessive emojis. Be genuine, not hype-y."""
+        system_prompt = (
+            f"Tu Postra hai, ek helpful Instagram content assistant jo Hinglish mein baat karta hai.\n"
+            f"Creator is post idea pe kaam kar raha hai: \"{chat['title']}\"\n"
+            f"Responses short rakho (2-4 sentences), practical aur friendly. "
+            f"Agar hooks, captions, ya hashtags maange — seedha generate karo. "
+            f"Zyada emojis mat use karo. Genuine raho, hype mat karo."
+        )
     else:
-        system_prompt = f"""You are Postra, a helpful Instagram content assistant.
-You are helping a creator work on this post idea: "{chat['title']}"
-Keep responses short (2-4 sentences), practical, and friendly.
-If they ask for hooks, captions, or hashtags — generate them directly.
-Don't use excessive emojis. Be genuine, not hype-y."""
+        system_prompt = (
+            f"You are Postra, a helpful Instagram content assistant.\n"
+            f"You are helping a creator work on this post idea: \"{chat['title']}\"\n"
+            f"Keep responses short (2-4 sentences), practical, and friendly. "
+            f"If they ask for hooks, captions, or hashtags — generate them directly. "
+            f"Don't use excessive emojis. Be genuine, not hype-y."
+        )
 
     groq_messages = [{"role": "system", "content": system_prompt}] + history
 
@@ -353,7 +501,7 @@ Don't use excessive emojis. Be genuine, not hype-y."""
     return {"user_message": user_msg, "ai_message": ai_msg}
 
 
-# ── Legacy selection handler (kept for API compatibility, simplified) ─────────
+# ── Legacy selection handler ──────────────────────────────────────────────────
 
 async def handle_save_selection(
     supabase,
@@ -363,7 +511,6 @@ async def handle_save_selection(
     caption: Optional[str] = None,
     hashtags: Optional[list[str]] = None,
 ) -> dict:
-    """Kept for API compatibility. Now just saves the selection and acks."""
     chat = get_chat_by_id(supabase, chat_id, user_id)
     if not chat:
         raise RuntimeError("Chat not found")
