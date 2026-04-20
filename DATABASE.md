@@ -66,7 +66,18 @@ JOIN:
 JOIN:
 - user_stats.user_id -> user_profile.id
 
-6) posts
+6) media
+- id           : uuid
+- user_id      : uuid
+- file_url     : text
+- type         : varchar(10)
+- file_size    : int4
+- created_at   : timestamptz
+
+JOIN:
+- media.user_id -> user_profile.id
+
+7) posts
 - id           : uuid
 - chat_id      : uuid
 - idea_id      : uuid
@@ -76,7 +87,6 @@ JOIN:
 - caption      : text
 - hashtags     : jsonb
 - cover_image  : text
-- media        : jsonb
 - status       : text
 - created_at   : timestamptz
 - updated_at   : timestamptz
@@ -88,7 +98,17 @@ JOINS:
 - posts.user_id -> user_profile.id
 - posts.idea_id -> ideas.id
 
-7) chats
+8) post_media
+- id           : uuid
+- post_id      : uuid
+- media_id     : uuid
+- created_at   : timestamptz
+
+JOINS:
+- post_media.post_id -> posts.id
+- post_media.media_id -> media.id
+
+9) chats
 - id          : uuid
 - idea_id     : uuid
 - title       : text
@@ -100,17 +120,17 @@ JOINS:
 - chats.user_id -> user_profile.id
 - chats.idea_id -> ideas.id
 
-8) schedules
+10) schedules
 - id            : uuid
 - post_id       : uuid
-- scheduled_at   : timestamptz
-- status         : text
-- created_at     : timestamptz
+- scheduled_at  : timestamptz
+- status        : text
+- created_at    : timestamptz
 
 JOIN:
 - schedules.post_id -> posts.id
 
-9) ideal_timing
+11) ideal_timing
 - id             : uuid
 - user_id        : uuid
 - niche          : text
@@ -127,7 +147,7 @@ JOIN:
 JOIN:
 - ideal_timing.user_id -> user_profile.id
 
-10) plans
+12) plans
 - id            : uuid
 - name          : text
 - price_monthly : numeric
@@ -138,7 +158,7 @@ JOIN:
 - created_at    : timestamptz
 - updated_at    : timestamptz
 
-11) ideas
+13) ideas
 - id            : uuid
 - user_id       : uuid
 - idea          : text
@@ -150,17 +170,21 @@ JOIN:
 JOIN:
 - ideas.user_id -> user_profile.id
 
+
 <!-- RELATIONSHIPS -->
 
-user_profile.id -> auth.users.id
-messages.chat_id -> chats.id
-posts.chat_id -> chats.id
-posts.user_id -> user_profile.id
-posts.idea_id -> ideas.id
-schedules.post_id -> posts.id
-chats.user_id -> user_profile.id
-chats.idea_id -> ideas.id
-ideal_timing.user_id -> user_profile.id
-ideas.user_id -> user_profile.id
-instagram_connections.user_id -> user_profile.id
-user_stats.user_id -> user_profile.id
+user_profile.id -> auth.users.id  
+messages.chat_id -> chats.id  
+posts.chat_id -> chats.id  
+posts.user_id -> user_profile.id  
+posts.idea_id -> ideas.id  
+schedules.post_id -> posts.id  
+chats.user_id -> user_profile.id  
+chats.idea_id -> ideas.id  
+ideal_timing.user_id -> user_profile.id  
+ideas.user_id -> user_profile.id  
+instagram_connections.user_id -> user_profile.id  
+user_stats.user_id -> user_profile.id  
+media.user_id -> user_profile.id  
+post_media.post_id -> posts.id  
+post_media.media_id -> media.id  

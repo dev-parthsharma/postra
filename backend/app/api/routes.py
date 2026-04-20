@@ -18,7 +18,7 @@ from app.schemas.response import HealthResponse
 from app.services.auth_service import AuthService
 from app.integrations.supabase_client import get_supabase_client, get_http_client
 from app.services import ideas_service
-from app.services.ideas_service import IdeaInvalid, IdeaConfused
+from app.services.ideas_service import IdeaInvalid, IdeaConfused, IdeaLimitReached
 from app.core.settings import settings
 
 router = APIRouter()
@@ -104,6 +104,18 @@ async def generate_ideas(
     try:
         ideas = await ideas_service.handle_generate_ideas(supabase, user_id)
         return {"ideas": ideas}
+    except IdeaLimitReached as e:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "limit reached",
+                # "message": f"Free plan allows only {e.limit} {'idea' if e.limit == 1 else 'ideas'} per day",
+                "message": f"Free plan allows only 3 ideas per day",
+                "plan": e.plan,
+                "used": e.used,
+                "limit": e.limit,
+            },
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:

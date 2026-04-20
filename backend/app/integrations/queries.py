@@ -204,6 +204,88 @@ def get_post_for_chat(supabase, chat_id: str) -> Optional[dict]:
     return response.data[0] if response.data else None
 
 
+# ── Plan / usage ──────────────────────────────────────────────────────────────
+
+def get_user_plan_usage(supabase, user_id: str) -> Optional[dict]:
+    """
+    Returns plan, ideas_used_today, and last_reset_date for the user.
+    Returns None if the profile row doesn't exist.
+    """
+    response = (
+        supabase.table("user_profile")
+        .select("plan, ideas_used_today, last_reset_date")
+        .eq("id", user_id)
+        .single()
+        .execute()
+    )
+    return response.data or None
+
+
+def reset_daily_usage_if_needed(supabase, user_id: str, today: str) -> dict:
+    """
+    If last_reset_date != today, atomically reset ideas_used_today to 0
+    and update last_reset_date to today.
+    Returns the (possibly updated) row: { plan, ideas_used_today, last_reset_date }
+    """
+    # Fetch current state
+    response = (
+        supabase.table("user_profile")
+        .select("plan, ideas_used_today, last_reset_date")
+        .eq("id", user_id)
+        .single()
+        .execute()
+    )
+    row = response.data
+    if not row:
+        raise RuntimeError("User profile not found")
+
+    last_reset = row.get("last_reset_date")  # may be a date string "YYYY-MM-DD" or None
+
+    # Normalise: Supabase may return a date object or a string
+    last_reset_str = str(last_reset) if last_reset else None
+
+    if last_reset_str != today:
+        # Reset counter for the new day
+        update_resp = (
+            supabase.table("user_profile")
+            .update({"ideas_used_today": 0, "last_reset_date": today})
+            .eq("id", user_id)
+            .execute()
+        )
+        updated = update_resp.data[0] if update_resp.data else {}
+        return {
+            "plan": row.get("plan") or "free",
+            "ideas_used_today": 0,
+            "last_reset_date": today,
+        }
+
+    return {
+        "plan": row.get("plan") or "free",
+        "ideas_used_today": row.get("ideas_used_today") or 0,
+        "last_reset_date": last_reset_str,
+    }
+
+
+def increment_ideas_used_today(supabase, user_id: str) -> None:
+    """
+    Increments ideas_used_today by 1 for the given user.
+    Uses rpc if available; falls back to a read-then-write approach.
+    """
+    # Read current value first (Supabase JS SDK supports .increment() but
+    # the Python SDK does not expose it natively — use a safe read+write).
+    response = (
+        supabase.table("user_profile")
+        .select("ideas_used_today")
+        .eq("id", user_id)
+        .single()
+        .execute()
+    )
+    current = (response.data or {}).get("ideas_used_today") or 0
+    supabase.table("user_profile").update(
+        {"ideas_used_today": current + 1}
+    ).eq("id", user_id).execute()
+
+
 # ── User profile ──────────────────────────────────────────────────────────────
 
 def get_user_profile(supabase, user_id: str) -> Optional[dict]:

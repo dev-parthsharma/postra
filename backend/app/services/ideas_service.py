@@ -18,7 +18,28 @@ from app.integrations.queries import (
     insert_message,
     upsert_post,
     get_post_for_chat,
+    reset_daily_usage_if_needed,
+    increment_ideas_used_today,
 )
+
+# ── Plan limits ───────────────────────────────────────────────────────────────
+
+# Maximum AI-generated ideas allowed per day, keyed by plan.
+# None = unlimited.
+PLAN_DAILY_LIMITS: dict[str, int | None] = {
+    "free":    1,
+    "starter": None,
+    "pro":     None,
+}
+
+
+class IdeaLimitReached(Exception):
+    """Raised when the user has exhausted their daily idea generation quota."""
+    def __init__(self, plan: str, used: int, limit: int):
+        self.plan  = plan
+        self.used  = used
+        self.limit = limit
+        super().__init__(f"Daily limit of {limit} ideas reached for plan '{plan}'")
 
 # ── AI config ─────────────────────────────────────────────────────────────────
 
@@ -276,6 +297,20 @@ async def handle_generate_ideas(supabase, user_id: str) -> list[dict]:
     if not profile:
         raise ValueError("User profile not found. Complete onboarding first.")
 
+    # ── Step 1: Daily reset ───────────────────────────────────────────────────
+    from datetime import date
+    today = date.today().isoformat()          # "YYYY-MM-DD"
+    usage = reset_daily_usage_if_needed(supabase, user_id, today)
+
+    plan            = (usage.get("plan") or "free").lower()
+    ideas_used      = usage.get("ideas_used_today") or 0
+    daily_limit     = PLAN_DAILY_LIMITS.get(plan, 3)  # unknown plans default to free
+
+    # ── Step 2: Limit check ───────────────────────────────────────────────────
+    if daily_limit is not None and ideas_used >= daily_limit:
+        raise IdeaLimitReached(plan=plan, used=ideas_used, limit=daily_limit)
+
+    # ── Step 3: Generate ideas ────────────────────────────────────────────────
     ideas_text = await generate_ideas(
         niche=profile.get("niche", "Lifestyle"),
         tone=profile.get("tone", "Casual & fun"),
@@ -283,6 +318,11 @@ async def handle_generate_ideas(supabase, user_id: str) -> list[dict]:
     )
 
     saved = insert_ideas(supabase, user_id, ideas_text, source="postra")
+
+    # ── Step 4: Increment counter ONLY after successful generation ────────────
+    if daily_limit is not None:
+        increment_ideas_used_today(supabase, user_id)
+
     return saved
 
 
