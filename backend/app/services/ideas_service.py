@@ -512,7 +512,12 @@ async def handle_send_message(supabase, chat_id: str, user_id: str, content: str
             f"Creator is post idea pe kaam kar raha hai: \"{chat['title']}\"\n"
             f"Responses short rakho (2-4 sentences), practical aur friendly. "
             f"Agar hooks, captions, ya hashtags maange — seedha generate karo. "
-            f"Zyada emojis mat use karo. Genuine raho, hype mat karo."
+            f"Zyada emojis mat use karo. Genuine raho, hype mat karo.\n\n"
+            f"STRICT RULE — CAPTIONS: Caption text MUST always be written in English only, "
+            f"no matter what language the conversation is in. "
+            f"Baki sab cheez (hooks, hashtags, chat replies) Hinglish mein ho sakti hai, "
+            f"lekin caption HAMESHA pure English mein likho — "
+            f"Instagram captions English mein zyada reach aur engagement dete hain."
         )
     else:
         system_prompt = (
@@ -520,7 +525,10 @@ async def handle_send_message(supabase, chat_id: str, user_id: str, content: str
             f"You are helping a creator work on this post idea: \"{chat['title']}\"\n"
             f"Keep responses short (2-4 sentences), practical, and friendly. "
             f"If they ask for hooks, captions, or hashtags — generate them directly. "
-            f"Don't use excessive emojis. Be genuine, not hype-y."
+            f"Don't use excessive emojis. Be genuine, not hype-y.\n\n"
+            f"STRICT RULE — CAPTIONS: Caption text MUST always be written in English only. "
+            f"Even if the user asks in another language, always write caption text in English — "
+            f"Instagram captions perform better in English."
         )
 
     groq_messages = [{"role": "system", "content": system_prompt}] + history

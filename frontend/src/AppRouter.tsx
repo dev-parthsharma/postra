@@ -18,6 +18,8 @@ import ScheduledPage from "./pages/Scheduled";
 import PublishedPage from "./pages/Published";
 import CalendarPage from "./pages/Calendar";
 import SettingsPage from "./pages/Settings";
+import AutomationsPage from "./pages/Automations";
+import UpgradePage from "./pages/Upgrade";
 
 // ── ProtectedRoute ────────────────────────────────────────────────────────────
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -237,6 +239,26 @@ export default function AppRouter() {
           element={
             <ProtectedRoute>
               <SettingsPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Automations */}
+        <Route
+          path="/automations"
+          element={
+            <ProtectedRoute>
+              <AutomationsPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Upgrade */}
+        <Route
+          path="/upgrade"
+          element={
+            <ProtectedRoute>
+              <UpgradePage />
             </ProtectedRoute>
           }
         />

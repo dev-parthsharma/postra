@@ -96,7 +96,7 @@ function IdeaRow({
             </button>
           )}
 
-          {highlighted && !idea.in_progress && (
+          {!idea.in_progress && (
             <button
               type="button"
               onClick={handleStartChat}
@@ -108,7 +108,7 @@ function IdeaRow({
             </button>
           )}
 
-          {highlighted && idea.in_progress && (
+          {idea.in_progress && (
             <button
               type="button"
               onClick={handleStartChat}
