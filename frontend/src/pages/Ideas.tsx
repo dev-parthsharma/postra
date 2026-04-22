@@ -401,13 +401,8 @@ function IdeaRow({
 
         {/* Content */}
         <div className="flex-1 min-w-0">
-          <p className="text-zinc-200 text-sm leading-relaxed">{idea.idea}</p>
-
-          {idea.why_it_works && (
-            <p className="text-zinc-500 text-xs italic mt-1.5 leading-relaxed">{idea.why_it_works}</p>
-          )}
-
-          <div className="flex items-center flex-wrap gap-2 mt-1.5">
+          {/* Score + source badges */}
+          <div className="flex items-center gap-2 flex-wrap mb-1.5">
             <span className={`text-xs px-1.5 py-0.5 rounded border ${
               idea.source === "postra"
                 ? "text-orange-400/70 bg-orange-500/5 border-orange-500/15"
@@ -425,11 +420,23 @@ function IdeaRow({
                 ⏳ In progress
               </span>
             )}
-
-            <span className="text-zinc-600 text-xs">
-              {new Date(idea.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
-            </span>
           </div>
+
+          {/* Idea text */}
+          <p className="text-zinc-200 text-sm leading-relaxed">{idea.idea}</p>
+
+          {/* Why it works */}
+          {idea.why_it_works && (
+            <div className="flex items-start gap-1.5 mt-1.5">
+              <span className="text-orange-400 text-[10px] mt-0.5 flex-shrink-0">💡</span>
+              <p className="text-zinc-500 text-xs italic leading-relaxed">{idea.why_it_works}</p>
+            </div>
+          )}
+
+          {/* Date */}
+          <p className="text-zinc-600 text-xs mt-1.5">
+            {new Date(idea.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+          </p>
         </div>
 
         {/* Actions */}

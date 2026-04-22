@@ -21,6 +21,25 @@ function Spinner() {
   );
 }
 
+function WinScoreBadge({ score }: { score: number }) {
+  const color =
+    score >= 8
+      ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+      : score >= 6
+      ? "text-orange-400 bg-orange-500/10 border-orange-500/20"
+      : "text-zinc-500 bg-zinc-800 border-zinc-700";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${color}`}
+    >
+      <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14 2 9.27l6.91-1.01L12 2z" />
+      </svg>
+      {score}/10
+    </span>
+  );
+}
+
 function IdeaCard({
   idea,
   onSelect,
@@ -35,28 +54,52 @@ function IdeaCard({
       className="group relative bg-zinc-800 border border-zinc-700 hover:border-orange-500/50 rounded-xl p-4 transition-all duration-200 cursor-pointer"
       onClick={() => onSelect(idea)}
     >
-      <p className="text-zinc-200 text-sm leading-relaxed pr-8">{idea.idea}</p>
-
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); onToggleFavourite(idea); }}
-        className={`absolute top-3 right-3 p-1 rounded-lg transition-all duration-150 ${
-          idea.is_favourite
-            ? "text-orange-400"
-            : "text-zinc-600 hover:text-zinc-400"
-        }`}
-        aria-label={idea.is_favourite ? "Remove from favourites" : "Add to favourites"}
-      >
-        <svg
-          width="16" height="16" viewBox="0 0 24 24"
-          fill={idea.is_favourite ? "currentColor" : "none"}
-          stroke="currentColor" strokeWidth="2"
+      {/* Top row: score + source + favourite */}
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {idea.win_score != null && idea.win_score > 0 && (
+            <WinScoreBadge score={idea.win_score} />
+          )}
+          <span className="text-[10px] text-zinc-500">
+            {idea.source === "postra" ? "✨ AI" : "✍️ You"}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFavourite(idea);
+          }}
+          className={`flex-shrink-0 p-1 rounded-lg transition-all duration-150 ${
+            idea.is_favourite ? "text-orange-400" : "text-zinc-600 hover:text-zinc-400"
+          }`}
+          aria-label={idea.is_favourite ? "Remove from favourites" : "Add to favourites"}
         >
-          <path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14 2 9.27l6.91-1.01L12 2z" />
-        </svg>
-      </button>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill={idea.is_favourite ? "currentColor" : "none"}
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14 2 9.27l6.91-1.01L12 2z" />
+          </svg>
+        </button>
+      </div>
 
-      <p className="text-zinc-600 text-xs mt-2 group-hover:text-orange-400 transition-colors">
+      {/* Idea text */}
+      <p className="text-zinc-200 text-sm leading-relaxed">{idea.idea}</p>
+
+      {/* Why it works */}
+      {idea.why_it_works && (
+        <div className="flex items-start gap-1.5 mt-2">
+          <span className="text-orange-400 text-[10px] mt-0.5 flex-shrink-0">💡</span>
+          <p className="text-zinc-500 text-xs italic leading-relaxed">{idea.why_it_works}</p>
+        </div>
+      )}
+
+      <p className="text-zinc-600 text-xs mt-2.5 group-hover:text-orange-400 transition-colors">
         Click to select →
       </p>
     </div>
@@ -85,12 +128,17 @@ export default function NewPostModal({ onClose, onChatCreated }: Props) {
   }, [state.view]);
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") handleClose(); };
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  const handleClose = () => { reset(); onClose(); };
+  const handleClose = () => {
+    reset();
+    onClose();
+  };
 
   const handleGoToChat = () => {
     if (!state.createdChat) return;
@@ -111,7 +159,9 @@ export default function NewPostModal({ onClose, onChatCreated }: Props) {
   return (
     <div
       className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center px-4"
-      onClick={(e) => { if (e.target === e.currentTarget) handleClose(); }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) handleClose();
+      }}
     >
       <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden">
 
@@ -120,14 +170,18 @@ export default function NewPostModal({ onClose, onChatCreated }: Props) {
           <div className="flex items-center gap-3">
             {state.view === "confirming" && (
               <button
-                type="button" onClick={handleBackFromConfirm}
+                type="button"
+                onClick={handleBackFromConfirm}
                 className="text-zinc-500 hover:text-zinc-300 transition-colors text-sm"
-              >←</button>
+              >
+                ←
+              </button>
             )}
             <h2 className="text-white font-semibold text-base">{headerTitle[state.view]}</h2>
           </div>
           <button
-            type="button" onClick={handleClose}
+            type="button"
+            onClick={handleClose}
             className="text-zinc-500 hover:text-zinc-300 transition-colors p-1 rounded-lg hover:bg-zinc-800"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -150,7 +204,11 @@ export default function NewPostModal({ onClose, onChatCreated }: Props) {
                   value={state.inputText}
                   onChange={(e) => setInputText(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && state.inputText.trim()) {
+                    if (
+                      e.key === "Enter" &&
+                      (e.metaKey || e.ctrlKey) &&
+                      state.inputText.trim()
+                    ) {
                       submitUserIdea();
                     }
                   }}
@@ -196,19 +254,33 @@ export default function NewPostModal({ onClose, onChatCreated }: Props) {
 
               <div className="flex items-center gap-3">
                 <button
-                  type="button" onClick={submitUserIdea}
+                  type="button"
+                  onClick={submitUserIdea}
                   disabled={!state.inputText.trim() || state.saving || state.generating}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-800 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {state.saving ? <><Spinner /> Saving…</> : "Save idea →"}
+                  {state.saving ? (
+                    <>
+                      <Spinner /> Saving…
+                    </>
+                  ) : (
+                    "Save idea →"
+                  )}
                 </button>
 
                 <button
-                  type="button" onClick={handleGenerate}
+                  type="button"
+                  onClick={handleGenerate}
                   disabled={state.generating || state.saving}
                   className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 active:scale-95 text-white text-sm font-semibold transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-orange-500/25 ml-auto"
                 >
-                  {state.generating ? <><Spinner /> Generating…</> : <>✨ Generate Ideas</>}
+                  {state.generating ? (
+                    <>
+                      <Spinner /> Generating…
+                    </>
+                  ) : (
+                    <>✨ Generate Ideas</>
+                  )}
                 </button>
               </div>
             </>
@@ -243,13 +315,28 @@ export default function NewPostModal({ onClose, onChatCreated }: Props) {
             <>
               <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-4">
                 <p className="text-zinc-200 text-sm leading-relaxed">{state.selectedIdea.idea}</p>
-                <span className={`inline-block mt-2 text-xs px-2 py-0.5 rounded-full border ${
-                  state.selectedIdea.source === "postra"
-                    ? "text-orange-400 bg-orange-500/10 border-orange-500/20"
-                    : "text-zinc-400 bg-zinc-700 border-zinc-600"
-                }`}>
-                  {state.selectedIdea.source === "postra" ? "AI generated" : "Your idea"}
-                </span>
+                {state.selectedIdea.why_it_works && (
+                  <div className="flex items-start gap-1.5 mt-2">
+                    <span className="text-orange-400 text-[10px] mt-0.5 flex-shrink-0">💡</span>
+                    <p className="text-zinc-500 text-xs italic leading-relaxed">
+                      {state.selectedIdea.why_it_works}
+                    </p>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 mt-3">
+                  <span
+                    className={`inline-block text-xs px-2 py-0.5 rounded-full border ${
+                      state.selectedIdea.source === "postra"
+                        ? "text-orange-400 bg-orange-500/10 border-orange-500/20"
+                        : "text-zinc-400 bg-zinc-700 border-zinc-600"
+                    }`}
+                  >
+                    {state.selectedIdea.source === "postra" ? "AI generated" : "Your idea"}
+                  </span>
+                  {state.selectedIdea.win_score != null && state.selectedIdea.win_score > 0 && (
+                    <WinScoreBadge score={state.selectedIdea.win_score} />
+                  )}
+                </div>
               </div>
 
               <p className="text-zinc-500 text-sm">
@@ -264,17 +351,25 @@ export default function NewPostModal({ onClose, onChatCreated }: Props) {
 
               <div className="flex items-center gap-3">
                 <button
-                  type="button" onClick={handleBackFromConfirm}
+                  type="button"
+                  onClick={handleBackFromConfirm}
                   className="px-4 py-2.5 rounded-xl bg-zinc-800 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium transition-all duration-150"
                 >
                   ← Back
                 </button>
                 <button
-                  type="button" onClick={handleConfirm}
+                  type="button"
+                  onClick={handleConfirm}
                   disabled={state.confirming}
                   className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 active:scale-95 text-white text-sm font-semibold transition-all duration-150 disabled:opacity-50 shadow-lg shadow-orange-500/25 ml-auto"
                 >
-                  {state.confirming ? <><Spinner /> Creating…</> : "Confirm & Start →"}
+                  {state.confirming ? (
+                    <>
+                      <Spinner /> Creating…
+                    </>
+                  ) : (
+                    "Confirm & Start →"
+                  )}
                 </button>
               </div>
             </>
@@ -301,7 +396,6 @@ export default function NewPostModal({ onClose, onChatCreated }: Props) {
               </button>
             </div>
           )}
-
         </div>
       </div>
     </div>
