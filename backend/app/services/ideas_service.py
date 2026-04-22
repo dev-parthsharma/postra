@@ -2,9 +2,9 @@
 
 import json
 import re
-import httpx
 from typing import Optional
 from app.core.settings import settings
+from app.services.llm_service import generate_content
 
 from app.integrations.queries import (
     insert_ideas,
@@ -43,8 +43,7 @@ class IdeaLimitReached(Exception):
 
 # ── AI config ─────────────────────────────────────────────────────────────────
 
-GROQ_API_KEY = settings.groq_api_key
-AI_MODEL     = "llama-3.1-8b-instant"
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -134,15 +133,12 @@ def _is_gibberish(text: str) -> bool:
     return False
 
 
-async def _classify_with_ai(text: str) -> str:
+def _classify_with_ai(text: str) -> str:
     """
-    Strict single-label AI classifier.
+    Strict single-label AI classifier using generate_content().
     Returns: "INVALID" | "CONFUSED" | "VALID"
-    Falls back to "VALID" on any API error so we don't block good ideas.
+    Falls back to "VALID" on any error so we don't block good ideas.
     """
-    if not GROQ_API_KEY:
-        return "VALID"      # can't call AI — let it through
-
     prompt = (
         "You are a strict content evaluator.\n"
         "Rules:\n"
@@ -154,34 +150,13 @@ async def _classify_with_ai(text: str) -> str:
     )
 
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {GROQ_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": AI_MODEL,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.0,
-                    "max_tokens": 10,
-                },
-            )
-
-        if response.status_code != 200:
-            return "VALID"  # fail open
-
-        raw = response.json()["choices"][0]["message"]["content"].strip().upper()
-
-        # Normalise: extract first word in case model added punctuation
+        raw = generate_content(prompt).strip().upper()
         first_word = re.split(r"[\s.,!?]", raw)[0]
         if first_word in ("INVALID", "CONFUSED", "VALID"):
             return first_word
-        return "VALID"      # unexpected label — fail open
-
+        return "VALID"
     except Exception:
-        return "VALID"      # network/parse error — fail open
+        return "VALID"  # fail open
 
 
 class IdeaInvalid(Exception):
@@ -207,7 +182,7 @@ async def validate_idea_text(text: str) -> None:
         raise IdeaInvalid("Idea text is gibberish")
 
     # ── Step 2: AI strict classifier ─────────────────────────────────────
-    label = await _classify_with_ai(text)
+    label = _classify_with_ai(text)
 
     if label == "INVALID":
         raise IdeaInvalid("Idea text classified as invalid by AI")
@@ -220,7 +195,16 @@ async def validate_idea_text(text: str) -> None:
 
 # ── Idea generation ───────────────────────────────────────────────────────────
 
-def _build_prompt(niche: str, tone: str, style: str) -> str:
+def _build_prompt(niche: str, tone: str, style: str, language: str = "english") -> str:
+    if language == "hinglish":
+        lang_instruction = (
+            "- Write each idea in Hinglish (a natural mix of Hindi and English, "
+            "as Indian Instagram creators speak). Example: "
+            "'Apni morning routine dikhao — productivity tips ke saath'"
+        )
+    else:
+        lang_instruction = "- Write each idea in clear English"
+
     return f"""You are a professional Instagram content strategist.
 
 Generate exactly 3 fresh, trending content ideas for an Instagram creator with the following profile:
@@ -234,6 +218,7 @@ Rules:
 - Ideas must match the creator's tone and style
 - No numbering, no bullet points inside the idea text
 - Return ONLY valid JSON, no explanation, no markdown, no extra text
+{lang_instruction}
 
 Response format:
 {{
@@ -245,44 +230,23 @@ Response format:
 }}"""
 
 
-async def generate_ideas(niche: str, tone: str, style: str) -> list[str]:
-    if not GROQ_API_KEY:
-        raise RuntimeError("GROQ_API_KEY is not set in environment")
+def generate_ideas(niche: str, tone: str, style: str, language: str = "english") -> list[str]:
+    prompt = _build_prompt(niche, tone, style, language)
 
-    prompt = _build_prompt(niche, tone, style)
+    raw = generate_content(prompt)
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": AI_MODEL,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.85,
-                "max_tokens": 300,
-            },
-        )
-
-    if response.status_code != 200:
-        raise RuntimeError(f"AI API error: {response.status_code} — {response.text}")
-
-    raw     = response.json()
-    content = raw["choices"][0]["message"]["content"].strip()
-
-    if content.startswith("```"):
-        content = content.split("```")[1]
-        if content.startswith("json"):
-            content = content[4:]
-        content = content.strip()
+    # Strip markdown code fences if present
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.strip()
 
     try:
-        parsed = json.loads(content)
+        parsed = json.loads(raw)
         ideas: list[str] = parsed["ideas"]
     except (json.JSONDecodeError, KeyError):
-        raise ValueError(f"AI returned malformed JSON: {content}")
+        raise ValueError(f"AI returned malformed JSON: {raw}")
 
     if len(ideas) != 3:
         raise ValueError(f"Expected 3 ideas, got {len(ideas)}")
@@ -311,10 +275,11 @@ async def handle_generate_ideas(supabase, user_id: str) -> list[dict]:
         raise IdeaLimitReached(plan=plan, used=ideas_used, limit=daily_limit)
 
     # ── Step 3: Generate ideas ────────────────────────────────────────────────
-    ideas_text = await generate_ideas(
+    ideas_text = generate_ideas(
         niche=profile.get("niche", "Lifestyle"),
         tone=profile.get("tone", "Casual & fun"),
         style=profile.get("style", "Face-to-camera talking"),
+        language=profile.get("language", "english"),
     )
 
     saved = insert_ideas(supabase, user_id, ideas_text, source="postra")
@@ -367,29 +332,12 @@ def handle_get_ideas(supabase, user_id: str) -> list[dict]:
 
 # ── AI call helper ────────────────────────────────────────────────────────────
 
-async def _call_groq(messages: list[dict], max_tokens: int = 600) -> str:
-    if not GROQ_API_KEY:
-        raise RuntimeError("GROQ_API_KEY is not set in environment")
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": AI_MODEL,
-                "messages": messages,
-                "temperature": 0.85,
-                "max_tokens": max_tokens,
-            },
-        )
-
-    if response.status_code != 200:
-        raise RuntimeError(f"AI API error: {response.status_code} — {response.text}")
-
-    return response.json()["choices"][0]["message"]["content"].strip()
+def _call_llm(messages: list[dict], max_tokens: int = 600) -> str:
+    """Flatten a messages list to a single prompt and call generate_content()."""
+    prompt = "\n\n".join(
+        f"[{m['role'].upper()}]\n{m['content']}" for m in messages
+    )
+    return generate_content(prompt)
 
 
 # ── Stage derivation ──────────────────────────────────────────────────────────
@@ -441,7 +389,7 @@ async def _generate_opening_message(idea_title: str, language: str = "english") 
             f"Return ONLY the message."
         )
 
-    raw = await _call_groq([{"role": "user", "content": prompt}], max_tokens=120)
+    raw = _call_llm([{"role": "user", "content": prompt}], max_tokens=120)
     return raw.strip().strip('"').strip("'")
 
 
@@ -533,7 +481,7 @@ async def handle_send_message(supabase, chat_id: str, user_id: str, content: str
 
     groq_messages = [{"role": "system", "content": system_prompt}] + history
 
-    ai_reply_text = await _call_groq(groq_messages, max_tokens=400)
+    ai_reply_text = _call_llm(groq_messages, max_tokens=400)
 
     seq2   = get_next_sequence(supabase, chat_id)
     ai_msg = insert_message(
