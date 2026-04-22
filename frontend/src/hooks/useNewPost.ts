@@ -9,19 +9,24 @@ import {
   toggleFavourite,
   confirmIdea,
   type Idea,
+  type IdeaWithMeta,
   type Chat,
 } from "../lib/ideasApi";
 import { classifyIdea } from "../utils/ideaValidator";
 
 export type ModalView =
   | "input"       // initial: write idea or generate
-  | "generated"   // 3 AI ideas shown
+  | "generated"   // recommended + alternatives shown
   | "confirming"  // user clicked an idea, confirm shown
   | "done";       // chat created, modal can close
 
 export interface NewPostState {
   view: ModalView;
   inputText: string;
+  // Structured ideas from generate endpoint
+  recommendedIdea: IdeaWithMeta | null;
+  alternativeIdeas: IdeaWithMeta[];
+  // Legacy flat list kept for backward compat
   generatedIdeas: Idea[];
   selectedIdea: Idea | null;
   createdChat: Chat | null;
@@ -34,6 +39,8 @@ export interface NewPostState {
 const INITIAL: NewPostState = {
   view: "input",
   inputText: "",
+  recommendedIdea: null,
+  alternativeIdeas: [],
   generatedIdeas: [],
   selectedIdea: null,
   createdChat: null,
@@ -61,7 +68,6 @@ export function useNewPost(onDone?: (chat: Chat) => void) {
     const text = state.inputText.trim();
     if (!text) return;
 
-    // Block gibberish before hitting the API
     if (classifyIdea(text) === "gibberish") {
       patch({ error: "__gibberish__" });
       return;
@@ -76,13 +82,20 @@ export function useNewPost(onDone?: (chat: Chat) => void) {
     }
   }, [state.inputText]);
 
-  // ── Case 2: Generate 3 AI ideas ───────────────────────────────────────────
+  // ── Case 2: Generate structured ideas ────────────────────────────────────
 
   const handleGenerate = useCallback(async () => {
     patch({ generating: true, error: null });
     try {
-      const ideas = await generateIdeas();
-      patch({ generating: false, generatedIdeas: ideas, view: "generated" });
+      const result = await generateIdeas();
+      patch({
+        generating: false,
+        recommendedIdea: result.recommended,
+        alternativeIdeas: result.alternatives,
+        // Keep flat list for backward compat
+        generatedIdeas: [result.recommended, ...result.alternatives],
+        view: "generated",
+      });
     } catch (e: unknown) {
       patch({ generating: false, error: (e as Error).message });
     }
@@ -92,20 +105,27 @@ export function useNewPost(onDone?: (chat: Chat) => void) {
 
   const handleToggleFavourite = useCallback(async (idea: Idea) => {
     const next = !idea.is_favourite;
+
+    const updateInList = (list: Idea[]) =>
+      list.map((i) => i.id === idea.id ? { ...i, is_favourite: next } : i);
+
     setState((s) => ({
       ...s,
-      generatedIdeas: s.generatedIdeas.map((i) =>
+      generatedIdeas: updateInList(s.generatedIdeas),
+      recommendedIdea: s.recommendedIdea?.id === idea.id
+        ? { ...s.recommendedIdea, is_favourite: next }
+        : s.recommendedIdea,
+      alternativeIdeas: s.alternativeIdeas.map((i) =>
         i.id === idea.id ? { ...i, is_favourite: next } : i
-      ),
+      ) as typeof s.alternativeIdeas,
     }));
+
     try {
       await toggleFavourite(idea.id, next);
     } catch {
       setState((s) => ({
         ...s,
-        generatedIdeas: s.generatedIdeas.map((i) =>
-          i.id === idea.id ? { ...i, is_favourite: !next } : i
-        ),
+        generatedIdeas: updateInList(s.generatedIdeas),
         error: "Failed to update favourite",
       }));
     }
@@ -137,7 +157,7 @@ export function useNewPost(onDone?: (chat: Chat) => void) {
     }
   }, [state.selectedIdea, onDone]);
 
-  // ── Reset (for re-open) ───────────────────────────────────────────────────
+  // ── Reset ─────────────────────────────────────────────────────────────────
 
   const reset = useCallback(() => setState(INITIAL), []);
 

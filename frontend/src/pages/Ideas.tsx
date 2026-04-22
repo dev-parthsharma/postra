@@ -1,9 +1,20 @@
 // frontend/src/pages/Ideas.tsx
-// Shows all ideas. Highlighted (user-written OR favourited) pinned at top.
+// Shows all ideas. Highlights recommended ideas with metadata.
 // Also has a "Save idea for later" section — input only, no AI.
 
 import { useEffect, useState, useCallback } from "react";
-import { listIdeas, saveUserIdea, toggleFavourite, confirmIdea, deleteIdea, ApiError, type Idea } from "../lib/ideasApi";
+import {
+  listIdeas,
+  saveUserIdea,
+  toggleFavourite,
+  confirmIdea,
+  deleteIdea,
+  generateIdeas,
+  ApiError,
+  type Idea,
+  type IdeaWithMeta,
+  type GeneratedIdeasResult,
+} from "../lib/ideasApi";
 import { useNavigate } from "react-router-dom";
 import { classifyIdea } from "../utils/ideaValidator";
 
@@ -15,6 +26,241 @@ function Spinner({ small = false }: { small?: boolean }) {
     </svg>
   );
 }
+
+function WinScore({ score }: { score: number }) {
+  const color =
+    score >= 8 ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" :
+    score >= 6 ? "text-orange-400 bg-orange-500/10 border-orange-500/20" :
+                 "text-zinc-500 bg-zinc-800 border-zinc-700";
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${color}`}>
+      <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14 2 9.27l6.91-1.01L12 2z" />
+      </svg>
+      {score}/10
+    </span>
+  );
+}
+
+// ── Generated Ideas Section ───────────────────────────────────────────────────
+
+interface GeneratedSectionProps {
+  result: GeneratedIdeasResult;
+  onSelect: (idea: Idea) => void;
+  onToggleFavourite: (idea: Idea) => void;
+  onRegenerate: () => void;
+  generating: boolean;
+}
+
+function GeneratedSection({
+  result,
+  onSelect,
+  onToggleFavourite,
+  onRegenerate,
+  generating,
+}: GeneratedSectionProps) {
+  const rec = result.recommended;
+  const alts = result.alternatives;
+
+  return (
+    <section className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-zinc-400 text-xs font-medium uppercase tracking-wider">
+          ✨ Fresh ideas for you
+        </h3>
+        <button
+          type="button"
+          onClick={onRegenerate}
+          disabled={generating}
+          className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-40"
+        >
+          {generating ? <Spinner small /> : "↺"}
+          {generating ? "Generating…" : "Regenerate"}
+        </button>
+      </div>
+
+      {/* Recommended */}
+      <div>
+        <p className="text-[11px] font-semibold text-orange-400 uppercase tracking-wide mb-2">
+          🔥 Recommended for you
+        </p>
+        <RecommendedIdeaCard
+          idea={rec}
+          onSelect={onSelect}
+          onToggleFavourite={onToggleFavourite}
+        />
+      </div>
+
+      {/* Alternatives */}
+      <div>
+        <p className="text-[11px] font-medium text-zinc-500 uppercase tracking-wide mb-2">
+          👇 Or try these
+        </p>
+        <div className="space-y-2">
+          {alts.map((idea) => (
+            <AlternativeIdeaCard
+              key={idea.id}
+              idea={idea}
+              onSelect={onSelect}
+              onToggleFavourite={onToggleFavourite}
+            />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function RecommendedIdeaCard({
+  idea,
+  onSelect,
+  onToggleFavourite,
+}: {
+  idea: IdeaWithMeta;
+  onSelect: (idea: Idea) => void;
+  onToggleFavourite: (idea: Idea) => void;
+}) {
+  const [starting, setStarting] = useState(false);
+
+  const handleStart = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setStarting(true);
+    await onSelect(idea);
+    setStarting(false);
+  };
+
+  return (
+    <div className="relative bg-gradient-to-br from-orange-500/8 to-zinc-900 border border-orange-500/25 rounded-2xl p-5 hover:border-orange-500/50 transition-all duration-200 group">
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] font-bold text-orange-400 bg-orange-500/10 border border-orange-500/20 px-2 py-0.5 rounded-full uppercase tracking-wide">
+            Top pick
+          </span>
+          <WinScore score={idea.win_score} />
+        </div>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onToggleFavourite(idea); }}
+          className={`flex-shrink-0 transition-colors ${
+            idea.is_favourite ? "text-orange-400" : "text-zinc-700 hover:text-zinc-500"
+          }`}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill={idea.is_favourite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
+            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14 2 9.27l6.91-1.01L12 2z" />
+          </svg>
+        </button>
+      </div>
+
+      <p className="text-zinc-100 text-sm font-medium leading-relaxed mb-3">{idea.idea}</p>
+
+      {idea.why_it_works && (
+        <div className="flex items-start gap-1.5 mb-4">
+          <span className="text-orange-400 text-[10px] mt-0.5 flex-shrink-0">💡</span>
+          <p className="text-zinc-400 text-xs italic leading-relaxed">{idea.why_it_works}</p>
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        {!idea.in_progress ? (
+          <button
+            type="button"
+            onClick={handleStart}
+            disabled={starting}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-xs font-semibold transition-all disabled:opacity-50 shadow-md shadow-orange-500/20"
+          >
+            {starting ? <Spinner small /> : null}
+            {starting ? "Starting…" : "Start Chat →"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleStart}
+            disabled={starting}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-all disabled:opacity-50"
+          >
+            {starting ? <Spinner small /> : null}
+            {starting ? "Opening…" : "Continue →"}
+          </button>
+        )}
+        <span className="text-zinc-600 text-xs">
+          {idea.source === "postra" ? "✨ AI generated" : "✍️ Your idea"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function AlternativeIdeaCard({
+  idea,
+  onSelect,
+  onToggleFavourite,
+}: {
+  idea: IdeaWithMeta;
+  onSelect: (idea: Idea) => void;
+  onToggleFavourite: (idea: Idea) => void;
+}) {
+  const [starting, setStarting] = useState(false);
+
+  const handleStart = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setStarting(true);
+    await onSelect(idea);
+    setStarting(false);
+  };
+
+  return (
+    <div className="bg-zinc-800/50 border border-zinc-700 rounded-xl p-4 hover:border-zinc-600 transition-all group">
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-zinc-200 text-sm leading-relaxed">{idea.idea}</p>
+          {idea.why_it_works && (
+            <p className="text-zinc-500 text-xs italic mt-1.5 leading-relaxed">{idea.why_it_works}</p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onToggleFavourite(idea); }}
+          className={`flex-shrink-0 mt-0.5 transition-colors ${
+            idea.is_favourite ? "text-orange-400" : "text-zinc-700 hover:text-zinc-500"
+          }`}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill={idea.is_favourite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
+            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14 2 9.27l6.91-1.01L12 2z" />
+          </svg>
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between mt-3">
+        <WinScore score={idea.win_score} />
+        <div className="flex items-center gap-2">
+          {!idea.in_progress ? (
+            <button
+              type="button"
+              onClick={handleStart}
+              disabled={starting}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-zinc-200 text-xs font-medium transition-all disabled:opacity-50"
+            >
+              {starting ? <Spinner small /> : null}
+              {starting ? "Starting…" : "Use this →"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleStart}
+              disabled={starting}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-all disabled:opacity-50"
+            >
+              {starting ? <Spinner small /> : null}
+              {starting ? "Opening…" : "Continue →"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Saved Idea Row ────────────────────────────────────────────────────────────
 
 function IdeaRow({
   idea,
@@ -39,12 +285,10 @@ function IdeaRow({
 
   return (
     <div className={`relative bg-zinc-900 border rounded-xl p-4 transition-all duration-200 ${
-      highlighted
-        ? "border-orange-500/30 bg-orange-500/5"
-        : "border-zinc-800 hover:border-zinc-700"
+      highlighted ? "border-orange-500/30 bg-orange-500/5" : "border-zinc-800 hover:border-zinc-700"
     }`}>
       <div className="flex items-start gap-3">
-        {/* Favourite star */}
+        {/* Favourite */}
         <button
           type="button"
           onClick={() => onToggleFavourite(idea)}
@@ -57,9 +301,15 @@ function IdeaRow({
           </svg>
         </button>
 
-        {/* Idea text */}
+        {/* Content */}
         <div className="flex-1 min-w-0">
           <p className="text-zinc-200 text-sm leading-relaxed">{idea.idea}</p>
+
+          {/* Why it works — if available */}
+          {idea.why_it_works && (
+            <p className="text-zinc-500 text-xs italic mt-1.5 leading-relaxed">{idea.why_it_works}</p>
+          )}
+
           <div className="flex items-center flex-wrap gap-2 mt-1.5">
             <span className={`text-xs px-1.5 py-0.5 rounded border ${
               idea.source === "postra"
@@ -68,6 +318,10 @@ function IdeaRow({
             }`}>
               {idea.source === "postra" ? "✨ AI" : "✍️ You"}
             </span>
+
+            {idea.win_score && idea.win_score > 0 && (
+              <WinScore score={idea.win_score} />
+            )}
 
             {idea.in_progress && (
               <span className="text-xs px-1.5 py-0.5 rounded border text-blue-400/70 bg-blue-500/5 border-blue-500/15">
@@ -81,7 +335,7 @@ function IdeaRow({
           </div>
         </div>
 
-        {/* Right side actions */}
+        {/* Actions */}
         <div className="flex items-center gap-2 flex-shrink-0">
           {idea.source === "user" && (
             <button
@@ -96,7 +350,7 @@ function IdeaRow({
             </button>
           )}
 
-          {!idea.in_progress && (
+          {!idea.in_progress ? (
             <button
               type="button"
               onClick={handleStartChat}
@@ -106,9 +360,7 @@ function IdeaRow({
               {starting ? <Spinner small /> : null}
               {starting ? "Starting…" : "Start Chat →"}
             </button>
-          )}
-
-          {idea.in_progress && (
+          ) : (
             <button
               type="button"
               onClick={handleStartChat}
@@ -125,6 +377,8 @@ function IdeaRow({
   );
 }
 
+// ── Main Page ─────────────────────────────────────────────────────────────────
+
 export default function IdeasPage() {
   const navigate = useNavigate();
   const [ideas, setIdeas] = useState<Idea[]>([]);
@@ -135,6 +389,9 @@ export default function IdeasPage() {
   const [isGibberish, setIsGibberish] = useState(false);
   const [confusedWarning, setConfusedWarning] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  const [generatedResult, setGeneratedResult] = useState<GeneratedIdeasResult | null>(null);
 
   const fetchIdeas = useCallback(async () => {
     try {
@@ -149,16 +406,37 @@ export default function IdeasPage() {
 
   useEffect(() => { fetchIdeas(); }, [fetchIdeas]);
 
+  // ── Generate structured ideas ─────────────────────────────────────────────
+
+  const handleGenerate = async () => {
+    setGenerating(true);
+    setGenerateError(null);
+    try {
+      const result = await generateIdeas();
+      setGeneratedResult(result);
+      // Prepend new ideas to the stored list
+      setIdeas((prev) => {
+        const newIds = new Set([result.recommended.id, ...result.alternatives.map((a) => a.id)]);
+        const filtered = prev.filter((i) => !newIds.has(i.id));
+        return [result.recommended, ...result.alternatives, ...filtered];
+      });
+    } catch (e: unknown) {
+      setGenerateError((e as Error).message);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  // ── Save user idea ────────────────────────────────────────────────────────
+
   const handleSave = async () => {
     const text = saveText.trim();
     if (!text) return;
 
-    // Reset all error states
     setSaveError(null);
     setIsGibberish(false);
     setConfusedWarning(null);
 
-    // Step 1: fast client-side gibberish check (no round trip)
     if (classifyIdea(text) === "gibberish") {
       setIsGibberish(true);
       return;
@@ -167,22 +445,16 @@ export default function IdeasPage() {
     setSaving(true);
     try {
       const saved = await saveUserIdea(text);
-
-      // Idea was saved — add to list regardless
       setIdeas((prev) => [saved, ...prev]);
       setSaveText("");
-
-      // If the backend flagged it as CONFUSED, surface the warning
       if (saved.warning && saved.message) {
         setConfusedWarning(saved.message);
       }
     } catch (e: unknown) {
       if (e instanceof ApiError) {
         if (e.type === "INVALID") {
-          // Server-side gibberish catch (passed client check but failed AI check)
           setIsGibberish(true);
         } else {
-          // Any other API error — show the readable message string
           setSaveError(e.message);
         }
       } else {
@@ -196,6 +468,15 @@ export default function IdeasPage() {
   const handleToggleFavourite = async (idea: Idea) => {
     const next = !idea.is_favourite;
     setIdeas((prev) => prev.map((i) => i.id === idea.id ? { ...i, is_favourite: next } : i));
+    if (generatedResult) {
+      setGeneratedResult((r) => {
+        if (!r) return r;
+        return {
+          recommended: r.recommended.id === idea.id ? { ...r.recommended, is_favourite: next } : r.recommended,
+          alternatives: r.alternatives.map((a) => a.id === idea.id ? { ...a, is_favourite: next } : a) as [IdeaWithMeta, IdeaWithMeta],
+        };
+      });
+    }
     try {
       await toggleFavourite(idea.id, next);
     } catch {
@@ -211,6 +492,12 @@ export default function IdeasPage() {
       if (!confirmed) return;
     }
     setIdeas((prev) => prev.filter((i) => i.id !== idea.id));
+    // Remove from generated result if present
+    if (generatedResult) {
+      if (generatedResult.recommended.id === idea.id || generatedResult.alternatives.some((a) => a.id === idea.id)) {
+        setGeneratedResult(null);
+      }
+    }
     try {
       await deleteIdea(idea.id);
     } catch (e: unknown) {
@@ -234,10 +521,54 @@ export default function IdeasPage() {
 
   const isHighlighted = (idea: Idea) => idea.source === "user" || idea.is_favourite;
   const highlighted = ideas.filter(isHighlighted);
-  const rest = ideas.filter((i) => !isHighlighted(i));
+  // Exclude ideas that are currently shown in the generated section
+  const generatedIds = generatedResult
+    ? new Set([generatedResult.recommended.id, ...generatedResult.alternatives.map((a) => a.id)])
+    : new Set<string>();
+  const rest = ideas.filter((i) => !isHighlighted(i) && !generatedIds.has(i.id));
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 space-y-8">
+
+      {/* ── Generate ideas CTA ────────────────────────────────────────────── */}
+      <section className="flex items-center justify-between">
+        <div>
+          <h2 className="text-white font-semibold text-base">Ideas</h2>
+          <p className="text-zinc-500 text-sm mt-0.5">Generate fresh ideas or save your own.</p>
+        </div>
+        <button
+          type="button"
+          onClick={handleGenerate}
+          disabled={generating}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 active:scale-95 text-white text-sm font-semibold transition-all duration-150 disabled:opacity-50 shadow-lg shadow-orange-500/20"
+        >
+          {generating ? <><Spinner /> Generating…</> : <>✨ Generate Ideas</>}
+        </button>
+      </section>
+
+      {/* Generate error */}
+      {generateError && (
+        <div className="flex items-start gap-3 p-3.5 rounded-xl bg-red-500/10 border border-red-500/20">
+          <span className="text-base leading-none flex-shrink-0">⚠️</span>
+          <p className="text-red-400 text-sm">{generateError}</p>
+        </div>
+      )}
+
+      {/* ── Generated Ideas Section ───────────────────────────────────────── */}
+      {generatedResult && (
+        <GeneratedSection
+          result={generatedResult}
+          onSelect={handleStartChat}
+          onToggleFavourite={handleToggleFavourite}
+          onRegenerate={handleGenerate}
+          generating={generating}
+        />
+      )}
+
+      {/* Divider when both sections shown */}
+      {generatedResult && (highlighted.length > 0 || rest.length > 0) && (
+        <div className="border-t border-zinc-800" />
+      )}
 
       {/* ── Save idea for later ───────────────────────────────────────────── */}
       <section>
@@ -274,7 +605,6 @@ export default function IdeasPage() {
           </button>
         </div>
 
-        {/* Gibberish error — shown for both client-side AND server INVALID */}
         {isGibberish && (
           <div className="mt-3 flex items-start gap-3 p-3.5 rounded-xl bg-red-500/10 border border-red-500/20">
             <span className="text-base leading-none flex-shrink-0 mt-0.5">⚠️</span>
@@ -288,48 +618,42 @@ export default function IdeasPage() {
                 onClick={() => {
                   setIsGibberish(false);
                   setSaveText("");
-                  navigate("/dashboard");
+                  handleGenerate();
                 }}
                 className="mt-2 text-xs font-semibold text-orange-400 hover:text-orange-300 transition-colors"
               >
-                ✨ Generate ideas on dashboard →
+                ✨ Generate ideas instead →
               </button>
             </div>
           </div>
         )}
 
-        {/* CONFUSED warning — idea was saved but is vague */}
         {confusedWarning && (
           <div className="mt-3 flex items-start gap-3 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
             <span className="text-base leading-none flex-shrink-0 mt-0.5">🤔</span>
             <div className="flex-1 min-w-0">
               <p className="text-amber-400 text-sm font-semibold">Idea saved, but it's a bit vague</p>
               <p className="text-zinc-500 text-xs mt-0.5">{confusedWarning}</p>
-              <button
-                type="button"
-                onClick={() => setConfusedWarning(null)}
-                className="mt-2 text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
-              >
+              <button type="button" onClick={() => setConfusedWarning(null)} className="mt-2 text-xs text-zinc-600 hover:text-zinc-400 transition-colors">
                 Dismiss
               </button>
             </div>
           </div>
         )}
 
-        {/* Generic API error — readable string, never [object Object] */}
         {saveError && (
           <p className="text-red-400 text-xs mt-2">{saveError}</p>
         )}
       </section>
 
-      {/* ── Ideas list ────────────────────────────────────────────────────── */}
+      {/* ── Saved Ideas List ──────────────────────────────────────────────── */}
       {loading ? (
         <div className="flex items-center justify-center py-12 text-zinc-600">
           <Spinner /> <span className="ml-2 text-sm">Loading ideas…</span>
         </div>
       ) : fetchError ? (
         <p className="text-red-400 text-sm">{fetchError}</p>
-      ) : ideas.length === 0 ? (
+      ) : ideas.length === 0 && !generatedResult ? (
         <div className="text-center py-12">
           <p className="text-zinc-600 text-sm">No ideas yet. Generate some or save one above.</p>
         </div>

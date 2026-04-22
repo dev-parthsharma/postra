@@ -24,8 +24,6 @@ from app.integrations.queries import (
 
 # ── Plan limits ───────────────────────────────────────────────────────────────
 
-# Maximum AI-generated ideas allowed per day, keyed by plan.
-# None = unlimited.
 PLAN_DAILY_LIMITS: dict[str, int | None] = {
     "free":    1,
     "starter": None,
@@ -34,25 +32,18 @@ PLAN_DAILY_LIMITS: dict[str, int | None] = {
 
 
 class IdeaLimitReached(Exception):
-    """Raised when the user has exhausted their daily idea generation quota."""
     def __init__(self, plan: str, used: int, limit: int):
         self.plan  = plan
         self.used  = used
         self.limit = limit
         super().__init__(f"Daily limit of {limit} ideas reached for plan '{plan}'")
 
-# ── AI config ─────────────────────────────────────────────────────────────────
-
-
-
 
 # ══════════════════════════════════════════════════════════════════════════════
-# IDEA VALIDATION  (Step 1: heuristic, Step 2: AI classifier)
+# IDEA VALIDATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Expanded real-word whitelist (English + Hinglish)
 _REAL_WORDS = {
-    # English common
     "a","an","the","and","or","but","for","in","is","it","my","you","i","we","he","she","they",
     "this","that","how","what","why","when","with","from","have","has","do","does","will","can",
     "not","are","was","were","be","been","being","had","if","then","than","so","as","at","by",
@@ -69,7 +60,6 @@ _REAL_WORDS = {
     "time","year","even","most","over","such","after","before","never","always","often","still",
     "only","much","many","same","last","long","down","back","first","way","into","than","very",
     "me","him","us","them","who","which","its","mine","yours","ours","theirs","am","been",
-    # Hinglish
     "hai","hain","kya","toh","bhi","koi","aur","jo","se","ko","ka","ki","ke","mein","par","pe",
     "ne","ho","hoga","karo","bhai","yaar","tera","mera","meri","teri","accha","nahi","sab",
     "kuch","ek","wala","wali","wale","raha","rahi","gaya","gayi","lega","legi","dena","lena",
@@ -81,64 +71,42 @@ _REAL_WORDS = {
 
 
 def _looks_like_real_word(word: str) -> bool:
-    """Heuristic: does this token look like a real word?"""
     w = word.lower()
     if not w:
         return True
     if len(w) <= 2:
-        return True          # short tokens — benefit of doubt
+        return True
     if w in _REAL_WORDS:
         return True
-
-    # Vowel ratio: genuine words have ≥15 % vowels
     vowels = sum(1 for c in w if c in "aeiou")
     if vowels / len(w) < 0.15:
         return False
-
-    # Consonant density: >85 % consonants is suspicious
     consonants = sum(1 for c in w if c.isalpha() and c not in "aeiou")
     if len(w) > 0 and consonants / len(w) > 0.85:
         return False
-
     return True
 
 
 def _is_gibberish(text: str) -> bool:
-    """
-    Pure-Python, no-LLM heuristic.
-    Returns True when the text is clearly random/keyboard-mash.
-    """
     stripped = text.strip()
     if not stripped:
         return True
-
     tokens = re.findall(r"[a-zA-Z]+", stripped.lower())
     if not tokens:
-        return True                  # only numbers/symbols
-
+        return True
     meaningful = [t for t in tokens if len(t) > 1]
     if not meaningful:
         return True
-
     real_ratio = sum(1 for t in meaningful if _looks_like_real_word(t)) / len(meaningful)
     if real_ratio < 0.45:
         return True
-
-    # Also block if the whole text is shorter than 3 words total
     if len(stripped.split()) < 3:
-        # 1-2 words might still be valid if they're recognisable
         if real_ratio < 0.8:
             return True
-
     return False
 
 
 def _classify_with_ai(text: str) -> str:
-    """
-    Strict single-label AI classifier using generate_content().
-    Returns: "INVALID" | "CONFUSED" | "VALID"
-    Falls back to "VALID" on any error so we don't block good ideas.
-    """
     prompt = (
         "You are a strict content evaluator.\n"
         "Rules:\n"
@@ -148,7 +116,6 @@ def _classify_with_ai(text: str) -> str:
         "DO NOT explain. DO NOT add extra words. ONLY return one word.\n\n"
         f"Text: \"{text}\""
     )
-
     try:
         raw = generate_content(prompt).strip().upper()
         first_word = re.split(r"[\s.,!?]", raw)[0]
@@ -156,86 +123,144 @@ def _classify_with_ai(text: str) -> str:
             return first_word
         return "VALID"
     except Exception:
-        return "VALID"  # fail open
+        return "VALID"
 
 
 class IdeaInvalid(Exception):
-    """Raised when an idea is INVALID (gibberish). Do not save, do not chat."""
     pass
 
 
 class IdeaConfused(Exception):
-    """Raised when an idea is CONFUSED (too vague). Save but warn the user."""
     pass
 
 
 async def validate_idea_text(text: str) -> None:
-    """
-    Validate idea text BEFORE any DB write.
-
-    Raises:
-        IdeaInvalid  — caller must return HTTP 422, never save
-        IdeaConfused — caller should surface a warning; saving is still OK
-    """
-    # ── Step 1: Fast heuristic (no LLM, no latency) ───────────────────────
     if _is_gibberish(text):
         raise IdeaInvalid("Idea text is gibberish")
-
-    # ── Step 2: AI strict classifier ─────────────────────────────────────
     label = _classify_with_ai(text)
-
     if label == "INVALID":
         raise IdeaInvalid("Idea text classified as invalid by AI")
-
     if label == "CONFUSED":
         raise IdeaConfused("Idea text is too vague or unclear")
 
-    # label == "VALID" → falls through, no exception
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STRUCTURED IDEA GENERATION  (recommended + alternatives)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _fetch_trends_for_niche(supabase, niche: str) -> list[str]:
+    """
+    Fetch up to 3 active trends matching the user's niche.
+    Returns a list of trend strings. Returns empty list on any error.
+    """
+    try:
+        from datetime import datetime, timezone
+        now_iso = datetime.now(timezone.utc).isoformat()
+        resp = (
+            supabase.table("current_trends")
+            .select("trend")
+            .ilike("niche", f"%{niche}%")
+            .gt("expires_at", now_iso)
+            .order("score", desc=True)
+            .limit(3)
+            .execute()
+        )
+        return [row["trend"] for row in (resp.data or [])]
+    except Exception:
+        return []
 
 
-# ── Idea generation ───────────────────────────────────────────────────────────
-
-def _build_prompt(niche: str, tone: str, style: str, language: str = "english") -> str:
-    if language == "hinglish":
-        lang_instruction = (
-            "- Write each idea in Hinglish (a natural mix of Hindi and English, "
-            "as Indian Instagram creators speak). Example: "
-            "'Apni morning routine dikhao — productivity tips ke saath'"
+def _build_generation_prompt(
+    niche: str,
+    tone: str,
+    style: str,
+    language: str,
+    trends: list[str],
+) -> str:
+    trend_section = ""
+    if trends:
+        trend_lines = "\n".join(f"  - {t}" for t in trends)
+        trend_section = (
+            f"\nCurrent trending topics in {niche} (use these as soft inspiration "
+            f"— weave them in naturally if relevant):\n{trend_lines}\n"
         )
     else:
-        lang_instruction = "- Write each idea in clear English"
+        trend_section = (
+            f"\nNo specific trends available — generate strong evergreen ideas "
+            f"that will perform well in the {niche} niche.\n"
+        )
 
-    return f"""You are a professional Instagram content strategist.
+    if language == "hinglish":
+        lang_rule = (
+            "- Write ideas in Hinglish (natural mix of Hindi and English, "
+            "as Indian Instagram creators speak). "
+            "Example: 'Apni morning routine dikhao — productivity tips ke saath'"
+        )
+    else:
+        lang_rule = "- Write ideas in clear, natural English"
 
-Generate exactly 3 fresh, trending content ideas for an Instagram creator with the following profile:
+    return f"""You are a senior Instagram content strategist who knows what actually performs.
+
+Creator profile:
 - Niche: {niche}
 - Tone: {tone}
 - Content style: {style}
+{trend_section}
+Generate exactly 3 postable Instagram content ideas for this creator.
 
 Rules:
-- Each idea must be a single, clear sentence (max 20 words)
-- Ideas must be relevant to current Instagram trends
-- Ideas must match the creator's tone and style
-- No numbering, no bullet points inside the idea text
-- Return ONLY valid JSON, no explanation, no markdown, no extra text
-{lang_instruction}
+- Each idea must be a single clear sentence (max 20 words)
+- Ideas must be practical, specific, and postable TODAY — not generic
+- Match the creator's tone and style precisely
+- No hooks, no scripts, no captions, no format/editing guidance inside ideas
+- recommended idea should be the strongest one (highest viral/engagement potential)
+- alternatives should be solid backups that complement the recommended
+- win_score: realistic integer 1-10 reflecting expected engagement potential
+- why_it_works: 1 short sentence (max 15 words) explaining the core reason this idea works
+{lang_rule}
+- Return ONLY valid JSON, no markdown, no explanation, no extra text
 
-Response format:
+Output format (strict JSON):
 {{
-  "ideas": [
-    "Idea one here",
-    "Idea two here",
-    "Idea three here"
+  "recommended": {{
+    "idea": "Idea sentence here",
+    "why_it_works": "One short reason sentence",
+    "win_score": 8
+  }},
+  "alternatives": [
+    {{
+      "idea": "Alternative idea one",
+      "why_it_works": "One short reason sentence",
+      "win_score": 7
+    }},
+    {{
+      "idea": "Alternative idea two",
+      "why_it_works": "One short reason sentence",
+      "win_score": 6
+    }}
   ]
 }}"""
 
 
-def generate_ideas(niche: str, tone: str, style: str, language: str = "english") -> list[str]:
-    prompt = _build_prompt(niche, tone, style, language)
-
+def generate_structured_ideas(
+    niche: str,
+    tone: str,
+    style: str,
+    language: str,
+    trends: list[str],
+) -> dict:
+    """
+    Returns a structured dict:
+    {
+      "recommended": { "idea": str, "why_it_works": str, "win_score": int },
+      "alternatives": [ {...}, {...} ]
+    }
+    Raises ValueError on malformed AI response.
+    """
+    prompt = _build_generation_prompt(niche, tone, style, language, trends)
     raw = generate_content(prompt)
 
-    # Strip markdown code fences if present
+    # Strip markdown fences if present
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
@@ -244,51 +269,159 @@ def generate_ideas(niche: str, tone: str, style: str, language: str = "english")
 
     try:
         parsed = json.loads(raw)
-        ideas: list[str] = parsed["ideas"]
-    except (json.JSONDecodeError, KeyError):
-        raise ValueError(f"AI returned malformed JSON: {raw}")
+    except json.JSONDecodeError:
+        raise ValueError(f"AI returned malformed JSON: {raw[:300]}")
 
-    if len(ideas) != 3:
-        raise ValueError(f"Expected 3 ideas, got {len(ideas)}")
+    # Validate shape
+    if "recommended" not in parsed or "alternatives" not in parsed:
+        raise ValueError(f"AI response missing required keys: {list(parsed.keys())}")
+    if len(parsed["alternatives"]) != 2:
+        raise ValueError(f"Expected 2 alternatives, got {len(parsed['alternatives'])}")
 
-    return [idea.strip() for idea in ideas]
+    # Validate and normalise each idea object
+    def _clean_idea_obj(obj: dict) -> dict:
+        return {
+            "idea":         str(obj.get("idea", "")).strip(),
+            "why_it_works": str(obj.get("why_it_works", "")).strip(),
+            "win_score":    int(obj.get("win_score", 5)),
+        }
+
+    return {
+        "recommended": _clean_idea_obj(parsed["recommended"]),
+        "alternatives": [_clean_idea_obj(a) for a in parsed["alternatives"]],
+    }
 
 
 # ── Idea orchestration ────────────────────────────────────────────────────────
 
-async def handle_generate_ideas(supabase, user_id: str) -> list[dict]:
+async def handle_generate_ideas(supabase, user_id: str) -> dict:
+    """
+    Returns structured ideas:
+    {
+      "recommended": { idea, why_it_works, win_score },
+      "alternatives": [ {...}, {...} ]
+    }
+    Also persists all 3 ideas to the DB with metadata.
+    Raises IdeaLimitReached if the user has hit their daily quota.
+    """
     profile = get_user_profile(supabase, user_id)
     if not profile:
         raise ValueError("User profile not found. Complete onboarding first.")
 
-    # ── Step 1: Daily reset ───────────────────────────────────────────────────
+    # ── Daily reset + limit check ─────────────────────────────────────────────
     from datetime import date
-    today = date.today().isoformat()          # "YYYY-MM-DD"
+    today = date.today().isoformat()
     usage = reset_daily_usage_if_needed(supabase, user_id, today)
 
-    plan            = (usage.get("plan") or "free").lower()
-    ideas_used      = usage.get("ideas_used_today") or 0
-    daily_limit     = PLAN_DAILY_LIMITS.get(plan, 3)  # unknown plans default to free
+    plan        = (usage.get("plan") or "free").lower()
+    ideas_used  = usage.get("ideas_used_today") or 0
+    daily_limit = PLAN_DAILY_LIMITS.get(plan, 3)
 
-    # ── Step 2: Limit check ───────────────────────────────────────────────────
     if daily_limit is not None and ideas_used >= daily_limit:
         raise IdeaLimitReached(plan=plan, used=ideas_used, limit=daily_limit)
 
-    # ── Step 3: Generate ideas ────────────────────────────────────────────────
-    ideas_text = generate_ideas(
-        niche=profile.get("niche", "Lifestyle"),
+    niche    = profile.get("niche", "Lifestyle")
+    language = profile.get("language", "english")
+
+    # ── Fetch trends (soft — never errors) ───────────────────────────────────
+    trends = _fetch_trends_for_niche(supabase, niche)
+
+    # ── Generate structured ideas ─────────────────────────────────────────────
+    structured = generate_structured_ideas(
+        niche=niche,
         tone=profile.get("tone", "Casual & fun"),
         style=profile.get("style", "Face-to-camera talking"),
-        language=profile.get("language", "english"),
+        language=language,
+        trends=trends,
     )
 
-    saved = insert_ideas(supabase, user_id, ideas_text, source="postra")
+    # ── Persist to DB ─────────────────────────────────────────────────────────
+    rec = structured["recommended"]
+    alt1, alt2 = structured["alternatives"]
 
-    # ── Step 4: Increment counter ONLY after successful generation ────────────
+    # Insert recommended idea (marked with is_recommended flag via source tag)
+    saved_rec = _insert_idea_with_metadata(
+        supabase, user_id,
+        idea_text=rec["idea"],
+        why_it_works=rec["why_it_works"],
+        win_score=rec["win_score"],
+        source="postra",
+    )
+
+    saved_alt1 = _insert_idea_with_metadata(
+        supabase, user_id,
+        idea_text=alt1["idea"],
+        why_it_works=alt1["why_it_works"],
+        win_score=alt1["win_score"],
+        source="postra",
+    )
+
+    saved_alt2 = _insert_idea_with_metadata(
+        supabase, user_id,
+        idea_text=alt2["idea"],
+        why_it_works=alt2["why_it_works"],
+        win_score=alt2["win_score"],
+        source="postra",
+    )
+
+    # ── Increment daily counter ───────────────────────────────────────────────
     if daily_limit is not None:
         increment_ideas_used_today(supabase, user_id)
 
-    return saved
+    return {
+        "recommended": {**saved_rec, "why_it_works": rec["why_it_works"], "win_score": rec["win_score"]},
+        "alternatives": [
+            {**saved_alt1, "why_it_works": alt1["why_it_works"], "win_score": alt1["win_score"]},
+            {**saved_alt2, "why_it_works": alt2["why_it_works"], "win_score": alt2["win_score"]},
+        ],
+    }
+
+
+def _insert_idea_with_metadata(
+    supabase,
+    user_id: str,
+    idea_text: str,
+    why_it_works: str,
+    win_score: int,
+    source: str,
+) -> dict:
+    """
+    Insert a single idea row with metadata columns.
+    Falls back gracefully if why_it_works / win_score columns don't exist yet.
+    """
+    row = {
+        "user_id":      user_id,
+        "idea":         idea_text.strip(),
+        "source":       source,
+        "is_favourite": False,
+        "why_it_works": why_it_works,
+        "win_score":    win_score,
+    }
+
+    try:
+        resp = supabase.table("ideas").insert(row).execute()
+        if not resp.data:
+            raise RuntimeError("Failed to insert idea")
+        return resp.data[0]
+    except Exception as e:
+        # If the new columns don't exist yet, fall back to minimal insert
+        err_str = str(e).lower()
+        if "why_it_works" in err_str or "win_score" in err_str or "column" in err_str:
+            minimal_row = {
+                "user_id":      user_id,
+                "idea":         idea_text.strip(),
+                "source":       source,
+                "is_favourite": False,
+            }
+            resp = supabase.table("ideas").insert(minimal_row).execute()
+            if not resp.data:
+                raise RuntimeError("Failed to insert idea (fallback)")
+            result = resp.data[0]
+            # Attach metadata in-memory even if not persisted
+            result["why_it_works"] = why_it_works
+            result["win_score"]    = win_score
+            return result
+        raise
 
 
 async def handle_save_user_idea(supabase, user_id: str, idea_text: str) -> dict:
@@ -302,10 +435,7 @@ async def handle_save_user_idea(supabase, user_id: str, idea_text: str) -> dict:
     if len(idea_text) > 500:
         raise ValueError("Idea text too long (max 500 characters)")
 
-    # ── VALIDATION GATE: runs before any DB write ─────────────────────────
     await validate_idea_text(idea_text)
-    # If we reach here, the idea is VALID (or CONFUSED — warning was raised
-    # as IdeaConfused which the caller catches and surfaces to the user).
 
     saved = insert_ideas(supabase, user_id, [idea_text], source="user")
     return saved[0]
@@ -316,10 +446,6 @@ def handle_toggle_favourite(supabase, user_id: str, idea_id: str, is_favourite: 
 
 
 def handle_confirm_idea(supabase, user_id: str, idea_id: str, idea_text: str) -> dict:
-    """
-    Create a chat from an already-saved idea.
-    The idea was validated when it was saved, so no re-validation needed here.
-    """
     title = idea_text.split("\n")[0].strip()
     if not title:
         title = idea_text[:100].strip()
@@ -333,7 +459,6 @@ def handle_get_ideas(supabase, user_id: str) -> list[dict]:
 # ── AI call helper ────────────────────────────────────────────────────────────
 
 def _call_llm(messages: list[dict], max_tokens: int = 600) -> str:
-    """Flatten a messages list to a single prompt and call generate_content()."""
     prompt = "\n\n".join(
         f"[{m['role'].upper()}]\n{m['content']}" for m in messages
     )
@@ -354,10 +479,6 @@ def _derive_stage(messages: list[dict]) -> str:
 # ── Smart opening message generator ──────────────────────────────────────────
 
 async def _generate_opening_message(idea_title: str, language: str = "english") -> str:
-    """
-    Generate a context-aware opening AI message for a VALID idea.
-    Called only after the idea has passed validation.
-    """
     if language == "hinglish":
         prompt = (
             f"Tu Postra hai — sharp aur honest Instagram content assistant jo Hinglish mein baat karta hai.\n\n"

@@ -18,8 +18,8 @@ async function authHeaders(): Promise<HeadersInit> {
 // ── Custom error so callers can inspect the validation type ──────────────────
 
 export class ApiError extends Error {
-  type?: string;       // "INVALID" | "CONFUSED" | undefined
-  warning?: boolean;   // true when backend returned a CONFUSED warning
+  type?: string;
+  warning?: boolean;
 
   constructor(message: string, type?: string, warning?: boolean) {
     super(message);
@@ -36,7 +36,6 @@ async function handleResponse<T>(res: Response): Promise<T> {
     const body = await res.json().catch(() => ({}));
     const detail = body.detail;
 
-    // detail can be a string OR a structured object { error, type, message }
     if (detail && typeof detail === "object") {
       const msg: string = detail.message ?? detail.error ?? `Request failed: ${res.status}`;
       throw new ApiError(msg, detail.type);
@@ -49,9 +48,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
 
   const data = await res.json() as T & { warning?: boolean; type?: string; message?: string };
 
-  // Backend may return 200 with a warning flag for CONFUSED ideas
   if ((data as any).warning) {
-    // Attach metadata to the returned object so callers can surface the warning
     return data;
   }
 
@@ -70,10 +67,25 @@ export interface Idea {
   updated_at: string;
   in_progress?: boolean;
   chat_id?: string | null;
+  // Metadata fields (may be null for older ideas)
+  why_it_works?: string | null;
+  win_score?: number | null;
   // Present on CONFUSED saves
   warning?: boolean;
   type?: string;
   message?: string;
+}
+
+/** A single idea with full metadata — returned by generate endpoint */
+export interface IdeaWithMeta extends Idea {
+  why_it_works: string;
+  win_score: number;
+}
+
+/** Structured response from /ideas/generate */
+export interface GeneratedIdeasResult {
+  recommended: IdeaWithMeta;
+  alternatives: [IdeaWithMeta, IdeaWithMeta];
 }
 
 export interface Chat {
@@ -87,13 +99,12 @@ export interface Chat {
 
 // ── API calls ────────────────────────────────────────────────────────────────
 
-export async function generateIdeas(): Promise<Idea[]> {
+export async function generateIdeas(): Promise<GeneratedIdeasResult> {
   const res = await fetch(`${BASE}/api/ideas/generate`, {
     method: "POST",
     headers: await authHeaders(),
   });
-  const data = await handleResponse<{ ideas: Idea[] }>(res);
-  return data.ideas;
+  return handleResponse<GeneratedIdeasResult>(res);
 }
 
 export async function saveUserIdea(idea: string): Promise<Idea> {
@@ -103,7 +114,6 @@ export async function saveUserIdea(idea: string): Promise<Idea> {
     body: JSON.stringify({ idea }),
   });
   const data = await handleResponse<{ idea: Idea; warning?: boolean; type?: string; message?: string }>(res);
-  // Attach any warning metadata directly onto the idea object for the caller
   return {
     ...data.idea,
     warning: data.warning,

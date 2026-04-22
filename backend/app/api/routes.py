@@ -101,15 +101,21 @@ async def generate_ideas(
     user_id: str = Depends(get_current_user_id),
     supabase=Depends(get_supabase),
 ):
+    """
+    Returns structured ideas:
+    {
+      "recommended": { "idea": str, "why_it_works": str, "win_score": int, ...db fields },
+      "alternatives": [ {...}, {...} ]
+    }
+    """
     try:
-        ideas = await ideas_service.handle_generate_ideas(supabase, user_id)
-        return {"ideas": ideas}
+        result = await ideas_service.handle_generate_ideas(supabase, user_id)
+        return result
     except IdeaLimitReached as e:
         raise HTTPException(
             status_code=429,
             detail={
                 "error": "limit reached",
-                # "message": f"Free plan allows only {e.limit} {'idea' if e.limit == 1 else 'ideas'} per day",
                 "message": f"Free plan allows only 3 ideas per day",
                 "plan": e.plan,
                 "used": e.used,
@@ -145,7 +151,6 @@ async def save_user_idea(
         return {"idea": idea}
 
     except IdeaInvalid:
-        # Hard block — do NOT save, do NOT start chat
         raise HTTPException(
             status_code=422,
             detail={
@@ -156,9 +161,6 @@ async def save_user_idea(
         )
 
     except IdeaConfused as e:
-        # Soft warning — idea was still saved (validation passed Step 1 but AI flagged vague)
-        # We need to save it here because handle_save_user_idea raises before saving on IdeaConfused.
-        # Re-run save without validation to persist the vague-but-real idea.
         from app.integrations.queries import insert_ideas
         saved = insert_ideas(supabase, user_id, [body.idea.strip()], source="user")
         idea = saved[0]
