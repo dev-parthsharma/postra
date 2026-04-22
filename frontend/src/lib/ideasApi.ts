@@ -86,6 +86,8 @@ export interface IdeaWithMeta extends Idea {
 export interface GeneratedIdeasResult {
   recommended: IdeaWithMeta;
   alternatives: [IdeaWithMeta, IdeaWithMeta];
+  /** True when Gemini was unavailable and fallback ideas were used */
+  _fallback?: boolean;
 }
 
 export interface Chat {

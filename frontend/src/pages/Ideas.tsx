@@ -1,8 +1,9 @@
 // frontend/src/pages/Ideas.tsx
 // Shows all ideas. Highlights recommended ideas with metadata.
-// Also has a "Save idea for later" section — input only, no AI.
+// Features: cycling loading messages, recommended card, 2 alternative cards,
+// win_score, why_it_works, fallback indicator, dedup (via backend session cache).
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   listIdeas,
   saveUserIdea,
@@ -17,6 +18,39 @@ import {
 } from "../lib/ideasApi";
 import { useNavigate } from "react-router-dom";
 import { classifyIdea } from "../utils/ideaValidator";
+
+// ── Loading messages that cycle during generation ─────────────────────────────
+
+const LOADING_MESSAGES = [
+  "Generating ideas...",
+  "Getting your ideas ready...",
+  "Finding something strong for your niche...",
+  "Checking what fits best...",
+  "Almost there...",
+];
+
+function useLoadingMessage(active: boolean): string {
+  const [index, setIndex] = useState(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (active) {
+      setIndex(0);
+      intervalRef.current = setInterval(() => {
+        setIndex((i) => (i + 1) % LOADING_MESSAGES.length);
+      }, 1800);
+    } else {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    }
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [active]);
+
+  return LOADING_MESSAGES[index];
+}
+
+// ── Sub-components ────────────────────────────────────────────────────────────
 
 function Spinner({ small = false }: { small?: boolean }) {
   return (
@@ -42,6 +76,58 @@ function WinScore({ score }: { score: number }) {
   );
 }
 
+// ── Loading skeleton for the generated section ────────────────────────────────
+
+function GeneratingSkeleton({ message }: { message: string }) {
+  return (
+    <section className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h3 className="text-zinc-400 text-xs font-medium uppercase tracking-wider">
+          ✨ Fresh ideas for you
+        </h3>
+        <span className="flex items-center gap-1.5 text-xs text-zinc-500">
+          <Spinner small />
+          {message}
+        </span>
+      </div>
+
+      {/* Recommended skeleton */}
+      <div>
+        <p className="text-[11px] font-semibold text-orange-400 uppercase tracking-wide mb-2">
+          🔥 Recommended for you
+        </p>
+        <div className="relative bg-gradient-to-br from-orange-500/5 to-zinc-900 border border-orange-500/15 rounded-2xl p-5 animate-pulse">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="h-4 w-16 bg-zinc-800 rounded-full" />
+            <div className="h-4 w-12 bg-zinc-800 rounded-full" />
+          </div>
+          <div className="h-4 bg-zinc-800 rounded w-full mb-2" />
+          <div className="h-4 bg-zinc-800 rounded w-5/6 mb-4" />
+          <div className="h-3 bg-zinc-800/60 rounded w-4/6 mb-5" />
+          <div className="h-8 bg-zinc-800 rounded-xl w-28" />
+        </div>
+      </div>
+
+      {/* Alternatives skeleton */}
+      <div>
+        <p className="text-[11px] font-medium text-zinc-500 uppercase tracking-wide mb-2">
+          👇 Or try these
+        </p>
+        <div className="space-y-2">
+          {[0, 1].map((i) => (
+            <div key={i} className="bg-zinc-800/40 border border-zinc-700/60 rounded-xl p-4 animate-pulse">
+              <div className="h-3 bg-zinc-700 rounded w-full mb-2" />
+              <div className="h-3 bg-zinc-700 rounded w-4/5 mb-3" />
+              <div className="h-3 bg-zinc-700/60 rounded w-3/5" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ── Generated Ideas Section ───────────────────────────────────────────────────
 
 interface GeneratedSectionProps {
@@ -50,6 +136,7 @@ interface GeneratedSectionProps {
   onToggleFavourite: (idea: Idea) => void;
   onRegenerate: () => void;
   generating: boolean;
+  loadingMessage: string;
 }
 
 function GeneratedSection({
@@ -58,24 +145,35 @@ function GeneratedSection({
   onToggleFavourite,
   onRegenerate,
   generating,
+  loadingMessage,
 }: GeneratedSectionProps) {
-  const rec = result.recommended;
+  if (generating) {
+    return <GeneratingSkeleton message={loadingMessage} />;
+  }
+
+  const rec  = result.recommended;
   const alts = result.alternatives;
 
   return (
     <section className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-zinc-400 text-xs font-medium uppercase tracking-wider">
-          ✨ Fresh ideas for you
-        </h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-zinc-400 text-xs font-medium uppercase tracking-wider">
+            ✨ Fresh ideas for you
+          </h3>
+          {result._fallback && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 font-medium">
+              evergreen picks
+            </span>
+          )}
+        </div>
         <button
           type="button"
           onClick={onRegenerate}
           disabled={generating}
           className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-40"
         >
-          {generating ? <Spinner small /> : "↺"}
-          {generating ? "Generating…" : "Regenerate"}
+          ↺ Regenerate
         </button>
       </div>
 
@@ -305,7 +403,6 @@ function IdeaRow({
         <div className="flex-1 min-w-0">
           <p className="text-zinc-200 text-sm leading-relaxed">{idea.idea}</p>
 
-          {/* Why it works — if available */}
           {idea.why_it_works && (
             <p className="text-zinc-500 text-xs italic mt-1.5 leading-relaxed">{idea.why_it_works}</p>
           )}
@@ -319,7 +416,7 @@ function IdeaRow({
               {idea.source === "postra" ? "✨ AI" : "✍️ You"}
             </span>
 
-            {idea.win_score && idea.win_score > 0 && (
+            {idea.win_score != null && idea.win_score > 0 && (
               <WinScore score={idea.win_score} />
             )}
 
@@ -392,6 +489,8 @@ export default function IdeasPage() {
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [generatedResult, setGeneratedResult] = useState<GeneratedIdeasResult | null>(null);
+
+  const loadingMessage = useLoadingMessage(generating);
 
   const fetchIdeas = useCallback(async () => {
     try {
@@ -472,6 +571,7 @@ export default function IdeasPage() {
       setGeneratedResult((r) => {
         if (!r) return r;
         return {
+          ...r,
           recommended: r.recommended.id === idea.id ? { ...r.recommended, is_favourite: next } : r.recommended,
           alternatives: r.alternatives.map((a) => a.id === idea.id ? { ...a, is_favourite: next } : a) as [IdeaWithMeta, IdeaWithMeta],
         };
@@ -492,9 +592,11 @@ export default function IdeasPage() {
       if (!confirmed) return;
     }
     setIdeas((prev) => prev.filter((i) => i.id !== idea.id));
-    // Remove from generated result if present
     if (generatedResult) {
-      if (generatedResult.recommended.id === idea.id || generatedResult.alternatives.some((a) => a.id === idea.id)) {
+      if (
+        generatedResult.recommended.id === idea.id ||
+        generatedResult.alternatives.some((a) => a.id === idea.id)
+      ) {
         setGeneratedResult(null);
       }
     }
@@ -521,7 +623,6 @@ export default function IdeasPage() {
 
   const isHighlighted = (idea: Idea) => idea.source === "user" || idea.is_favourite;
   const highlighted = ideas.filter(isHighlighted);
-  // Exclude ideas that are currently shown in the generated section
   const generatedIds = generatedResult
     ? new Set([generatedResult.recommended.id, ...generatedResult.alternatives.map((a) => a.id)])
     : new Set<string>();
@@ -530,7 +631,7 @@ export default function IdeasPage() {
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 space-y-8">
 
-      {/* ── Generate ideas CTA ────────────────────────────────────────────── */}
+      {/* ── Header + Generate CTA ─────────────────────────────────────────── */}
       <section className="flex items-center justify-between">
         <div>
           <h2 className="text-white font-semibold text-base">Ideas</h2>
@@ -542,7 +643,7 @@ export default function IdeasPage() {
           disabled={generating}
           className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 active:scale-95 text-white text-sm font-semibold transition-all duration-150 disabled:opacity-50 shadow-lg shadow-orange-500/20"
         >
-          {generating ? <><Spinner /> Generating…</> : <>✨ Generate Ideas</>}
+          {generating ? <><Spinner /> {loadingMessage}</> : <>✨ Generate Ideas</>}
         </button>
       </section>
 
@@ -554,19 +655,20 @@ export default function IdeasPage() {
         </div>
       )}
 
-      {/* ── Generated Ideas Section ───────────────────────────────────────── */}
-      {generatedResult && (
+      {/* ── Generated Ideas Section (or skeleton while loading) ───────────── */}
+      {(generatedResult || generating) && (
         <GeneratedSection
-          result={generatedResult}
+          result={generatedResult ?? { recommended: {} as IdeaWithMeta, alternatives: [{} as IdeaWithMeta, {} as IdeaWithMeta] }}
           onSelect={handleStartChat}
           onToggleFavourite={handleToggleFavourite}
           onRegenerate={handleGenerate}
           generating={generating}
+          loadingMessage={loadingMessage}
         />
       )}
 
       {/* Divider when both sections shown */}
-      {generatedResult && (highlighted.length > 0 || rest.length > 0) && (
+      {(generatedResult || generating) && (highlighted.length > 0 || rest.length > 0) && (
         <div className="border-t border-zinc-800" />
       )}
 
@@ -574,7 +676,7 @@ export default function IdeasPage() {
       <section>
         <h2 className="text-white font-semibold text-base mb-1">Save idea for later</h2>
         <p className="text-zinc-500 text-sm mb-4">
-          Capture a quick idea now. No AI — just save it before it slips away.
+          Capture a quick idea now — no AI, just save it before it slips away.
         </p>
         <div className="flex gap-2">
           <input
@@ -653,7 +755,7 @@ export default function IdeasPage() {
         </div>
       ) : fetchError ? (
         <p className="text-red-400 text-sm">{fetchError}</p>
-      ) : ideas.length === 0 && !generatedResult ? (
+      ) : ideas.length === 0 && !generatedResult && !generating ? (
         <div className="text-center py-12">
           <p className="text-zinc-600 text-sm">No ideas yet. Generate some or save one above.</p>
         </div>
@@ -662,7 +764,7 @@ export default function IdeasPage() {
           {highlighted.length > 0 && (
             <section>
               <h3 className="text-zinc-400 text-xs font-medium uppercase tracking-wider mb-3">
-                ★ Your ideas & favourites
+                ★ Your ideas &amp; favourites
               </h3>
               <div className="space-y-2">
                 {highlighted.map((idea) => (

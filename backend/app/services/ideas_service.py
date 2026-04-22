@@ -1,10 +1,12 @@
 # backend/app/services/ideas_service.py
 
 import json
+import random
 import re
 from typing import Optional
 from app.core.settings import settings
 from app.services.llm_service import generate_content
+from app.services.fallback_ideas import get_fallback_ideas
 
 from app.integrations.queries import (
     insert_ideas,
@@ -37,6 +39,41 @@ class IdeaLimitReached(Exception):
         self.used  = used
         self.limit = limit
         super().__init__(f"Daily limit of {limit} ideas reached for plan '{plan}'")
+
+
+# ── In-memory dedup cache ─────────────────────────────────────────────────────
+# Keyed by user_id → set of idea text snippets seen this session.
+# This is intentionally lightweight — it lives only in app memory.
+# It prevents showing the same idea twice within a session without schema changes.
+
+_seen_ideas_cache: dict[str, set[str]] = {}
+
+
+def _cache_key(idea_text: str) -> str:
+    """Normalise idea text to a dedup key (lowercase, stripped, first 80 chars)."""
+    return idea_text.lower().strip()[:80]
+
+
+def _get_seen_ideas(user_id: str) -> set[str]:
+    return _seen_ideas_cache.setdefault(user_id, set())
+
+
+def _mark_ideas_seen(user_id: str, ideas: list[str]) -> None:
+    seen = _get_seen_ideas(user_id)
+    for idea in ideas:
+        seen.add(_cache_key(idea))
+    # Cap cache size to avoid memory leak for long-running servers
+    if len(seen) > 200:
+        # Drop oldest half — sets don't have order, so just trim arbitrarily
+        overflow = list(seen)[:100]
+        for k in overflow:
+            seen.discard(k)
+
+
+def _filter_seen(user_id: str, ideas: list[dict]) -> list[dict]:
+    """Remove ideas that were already seen this session. Best-effort, non-blocking."""
+    seen = _get_seen_ideas(user_id)
+    return [i for i in ideas if _cache_key(i.get("idea", "")) not in seen]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -151,7 +188,7 @@ async def validate_idea_text(text: str) -> None:
 def _fetch_trends_for_niche(supabase, niche: str) -> list[str]:
     """
     Fetch up to 3 active trends matching the user's niche.
-    Returns a list of trend strings. Returns empty list on any error.
+    Returns empty list on any error — never blocks generation.
     """
     try:
         from datetime import datetime, timezone
@@ -176,18 +213,27 @@ def _build_generation_prompt(
     style: str,
     language: str,
     trends: list[str],
+    exclude_ideas: list[str],
 ) -> str:
     trend_section = ""
     if trends:
         trend_lines = "\n".join(f"  - {t}" for t in trends)
         trend_section = (
-            f"\nCurrent trending topics in {niche} (use these as soft inspiration "
-            f"— weave them in naturally if relevant):\n{trend_lines}\n"
+            f"\nCurrent trending topics in {niche} (weave them in naturally if relevant):\n"
+            f"{trend_lines}\n"
         )
     else:
         trend_section = (
             f"\nNo specific trends available — generate strong evergreen ideas "
             f"that will perform well in the {niche} niche.\n"
+        )
+
+    exclude_section = ""
+    if exclude_ideas:
+        exclude_lines = "\n".join(f"  - {e}" for e in exclude_ideas[:10])
+        exclude_section = (
+            f"\nDo NOT generate ideas similar to these already-seen ideas:\n"
+            f"{exclude_lines}\n"
         )
 
     if language == "hinglish":
@@ -205,7 +251,7 @@ Creator profile:
 - Niche: {niche}
 - Tone: {tone}
 - Content style: {style}
-{trend_section}
+{trend_section}{exclude_section}
 Generate exactly 3 postable Instagram content ideas for this creator.
 
 Rules:
@@ -242,53 +288,105 @@ Output format (strict JSON):
 }}"""
 
 
+def _parse_structured_ideas(raw: str) -> dict:
+    """
+    Parse and validate the structured ideas JSON from Gemini.
+    Raises ValueError on malformed response.
+    """
+    # Strip markdown fences if present
+    text = raw.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        # Remove opening fence
+        lines = lines[1:] if lines[0].startswith("```") else lines
+        # Remove closing fence
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        # Try to extract JSON object from the text
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if match:
+            try:
+                parsed = json.loads(match.group())
+            except json.JSONDecodeError:
+                raise ValueError(f"AI returned malformed JSON: {raw[:300]}")
+        else:
+            raise ValueError(f"AI returned malformed JSON: {raw[:300]}")
+
+    if "recommended" not in parsed or "alternatives" not in parsed:
+        raise ValueError(f"AI response missing required keys: {list(parsed.keys())}")
+    if not isinstance(parsed["alternatives"], list) or len(parsed["alternatives"]) < 2:
+        raise ValueError(f"Expected 2 alternatives, got {len(parsed.get('alternatives', []))}")
+
+    def _clean_idea_obj(obj: dict) -> dict:
+        return {
+            "idea":         str(obj.get("idea", "")).strip(),
+            "why_it_works": str(obj.get("why_it_works", "")).strip(),
+            "win_score":    max(1, min(10, int(obj.get("win_score", 5)))),
+        }
+
+    return {
+        "recommended": _clean_idea_obj(parsed["recommended"]),
+        "alternatives": [_clean_idea_obj(a) for a in parsed["alternatives"][:2]],
+    }
+
+
 def generate_structured_ideas(
     niche: str,
     tone: str,
     style: str,
     language: str,
     trends: list[str],
+    exclude_ideas: list[str],
 ) -> dict:
     """
-    Returns a structured dict:
-    {
-      "recommended": { "idea": str, "why_it_works": str, "win_score": int },
-      "alternatives": [ {...}, {...} ]
-    }
+    Generate structured ideas via Gemini.
+    Returns: { recommended: {...}, alternatives: [{...}, {...}] }
     Raises ValueError on malformed AI response.
+    Raises RuntimeError (from llm_service) if all Gemini rounds fail.
     """
-    prompt = _build_generation_prompt(niche, tone, style, language, trends)
+    prompt = _build_generation_prompt(niche, tone, style, language, trends, exclude_ideas)
     raw = generate_content(prompt)
+    return _parse_structured_ideas(raw)
 
-    # Strip markdown fences if present
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip()
 
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        raise ValueError(f"AI returned malformed JSON: {raw[:300]}")
+def _build_fallback_result(niche: str, user_id: str) -> dict:
+    """
+    Build a structured ideas result from the fallback ideas bank.
+    Filters out recently seen ideas, then picks the best 3.
+    Returns: { recommended: {...}, alternatives: [{...}, {...}] }
+    """
+    all_ideas = get_fallback_ideas(niche)
 
-    # Validate shape
-    if "recommended" not in parsed or "alternatives" not in parsed:
-        raise ValueError(f"AI response missing required keys: {list(parsed.keys())}")
-    if len(parsed["alternatives"]) != 2:
-        raise ValueError(f"Expected 2 alternatives, got {len(parsed['alternatives'])}")
+    # Filter seen ideas (best effort)
+    unseen = _filter_seen(user_id, all_ideas)
+    pool = unseen if len(unseen) >= 3 else all_ideas
 
-    # Validate and normalise each idea object
-    def _clean_idea_obj(obj: dict) -> dict:
-        return {
-            "idea":         str(obj.get("idea", "")).strip(),
-            "why_it_works": str(obj.get("why_it_works", "")).strip(),
-            "win_score":    int(obj.get("win_score", 5)),
-        }
+    # Pick top scorer as recommended, then 2 random alternatives from the rest
+    pool_sorted = sorted(pool, key=lambda x: x["win_score"], reverse=True)
+    recommended = pool_sorted[0]
+
+    # Pick 2 alternatives that differ from recommended
+    alternatives_pool = [i for i in pool if i["idea"] != recommended["idea"]]
+    random.shuffle(alternatives_pool)
+    alternatives = alternatives_pool[:2]
+
+    # Ensure we always have 2 alternatives
+    while len(alternatives) < 2:
+        alternatives.append({
+            "idea": "Create a day-in-your-life reel showing your real daily routine",
+            "why_it_works": "Authentic daily content builds strong personal connection with audiences",
+            "win_score": 7,
+        })
 
     return {
-        "recommended": _clean_idea_obj(parsed["recommended"]),
-        "alternatives": [_clean_idea_obj(a) for a in parsed["alternatives"]],
+        "recommended": recommended,
+        "alternatives": alternatives[:2],
+        "_is_fallback": True,
     }
 
 
@@ -298,7 +396,7 @@ async def handle_generate_ideas(supabase, user_id: str) -> dict:
     """
     Returns structured ideas:
     {
-      "recommended": { idea, why_it_works, win_score },
+      "recommended": { idea, why_it_works, win_score, ...db_fields },
       "alternatives": [ {...}, {...} ]
     }
     Also persists all 3 ideas to the DB with metadata.
@@ -326,20 +424,30 @@ async def handle_generate_ideas(supabase, user_id: str) -> dict:
     # ── Fetch trends (soft — never errors) ───────────────────────────────────
     trends = _fetch_trends_for_niche(supabase, niche)
 
-    # ── Generate structured ideas ─────────────────────────────────────────────
-    structured = generate_structured_ideas(
-        niche=niche,
-        tone=profile.get("tone", "Casual & fun"),
-        style=profile.get("style", "Face-to-camera talking"),
-        language=language,
-        trends=trends,
-    )
+    # ── Build exclude list from session cache ─────────────────────────────────
+    seen = _get_seen_ideas(user_id)
+    exclude_list = list(seen)[:15]  # cap to keep prompt reasonable
+
+    # ── Attempt AI generation, fall back gracefully ───────────────────────────
+    is_fallback = False
+    try:
+        structured = generate_structured_ideas(
+            niche=niche,
+            tone=profile.get("tone", "Casual & fun"),
+            style=profile.get("style", "Face-to-camera talking"),
+            language=language,
+            trends=trends,
+            exclude_ideas=exclude_list,
+        )
+    except Exception as e:
+        print(f"[ideas_service] Gemini failed, using fallback: {e}")
+        structured = _build_fallback_result(niche, user_id)
+        is_fallback = True
 
     # ── Persist to DB ─────────────────────────────────────────────────────────
-    rec = structured["recommended"]
+    rec  = structured["recommended"]
     alt1, alt2 = structured["alternatives"]
 
-    # Insert recommended idea (marked with is_recommended flag via source tag)
     saved_rec = _insert_idea_with_metadata(
         supabase, user_id,
         idea_text=rec["idea"],
@@ -364,17 +472,29 @@ async def handle_generate_ideas(supabase, user_id: str) -> dict:
         source="postra",
     )
 
+    # ── Mark ideas as seen in session cache ───────────────────────────────────
+    _mark_ideas_seen(user_id, [rec["idea"], alt1["idea"], alt2["idea"]])
+
     # ── Increment daily counter ───────────────────────────────────────────────
     if daily_limit is not None:
         increment_ideas_used_today(supabase, user_id)
 
-    return {
-        "recommended": {**saved_rec, "why_it_works": rec["why_it_works"], "win_score": rec["win_score"]},
+    result = {
+        "recommended": {
+            **saved_rec,
+            "why_it_works": rec["why_it_works"],
+            "win_score": rec["win_score"],
+        },
         "alternatives": [
             {**saved_alt1, "why_it_works": alt1["why_it_works"], "win_score": alt1["win_score"]},
             {**saved_alt2, "why_it_works": alt2["why_it_works"], "win_score": alt2["win_score"]},
         ],
     }
+
+    if is_fallback:
+        result["_fallback"] = True
+
+    return result
 
 
 def _insert_idea_with_metadata(
@@ -404,7 +524,6 @@ def _insert_idea_with_metadata(
             raise RuntimeError("Failed to insert idea")
         return resp.data[0]
     except Exception as e:
-        # If the new columns don't exist yet, fall back to minimal insert
         err_str = str(e).lower()
         if "why_it_works" in err_str or "win_score" in err_str or "column" in err_str:
             minimal_row = {
@@ -417,7 +536,6 @@ def _insert_idea_with_metadata(
             if not resp.data:
                 raise RuntimeError("Failed to insert idea (fallback)")
             result = resp.data[0]
-            # Attach metadata in-memory even if not persisted
             result["why_it_works"] = why_it_works
             result["win_score"]    = win_score
             return result

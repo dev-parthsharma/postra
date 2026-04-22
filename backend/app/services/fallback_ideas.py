@@ -1,0 +1,163 @@
+# backend/app/services/fallback_ideas.py
+# Evergreen fallback ideas per niche.
+# Used when Gemini is unavailable across all retry rounds.
+# Each idea includes: idea, why_it_works, win_score
+
+FALLBACK_IDEAS: dict[str, list[dict]] = {
+    "Fitness": [
+        {"idea": "Show the exact 5-minute warm-up you do before every workout", "why_it_works": "Quick actionable content that solves a common problem most creators skip", "win_score": 8},
+        {"idea": "Recreate a viral exercise but explain what muscles it actually hits", "why_it_works": "Piggybacks on trending content while adding genuine educational value", "win_score": 9},
+        {"idea": "Document what eating 150g of protein actually looks like in a full day", "why_it_works": "Protein content consistently outperforms — concrete visuals make it shareable", "win_score": 8},
+        {"idea": "Show 3 beginner mistakes at the gym you made and how to fix them", "why_it_works": "Relatable mistake-format drives saves and shares from new gym-goers", "win_score": 9},
+        {"idea": "Post a 30-day transformation with daily gym check-ins condensed into one reel", "why_it_works": "Transformation content has the highest completion rate in the fitness niche", "win_score": 9},
+        {"idea": "Share your honest review of a popular fitness supplement you actually use daily", "why_it_works": "Genuine opinion reviews build deep trust and drive saves from people considering purchase", "win_score": 7},
+        {"idea": "Show a home workout that requires zero equipment and takes under 15 minutes", "why_it_works": "Zero barrier to entry means maximum shareability across your entire audience", "win_score": 8},
+        {"idea": "React to the most common fitness myth you keep seeing on your feed", "why_it_works": "Myth-busting format naturally triggers comments and algorithm-boosting discussion", "win_score": 8},
+        {"idea": "Show what your meal prep Sunday actually looks like step by step", "why_it_works": "Sunday meal prep content peaks every weekend and has high repeat-watch value", "win_score": 7},
+        {"idea": "Film a full upper body workout with form tips overlaid on screen", "why_it_works": "Tutorial-style content consistently gets saved by people planning to try it later", "win_score": 8},
+    ],
+    "Finance": [
+        {"idea": "Break down exactly how you saved your first ₹1 lakh — the real version", "why_it_works": "Specific milestone stories vastly outperform generic advice in finance content", "win_score": 9},
+        {"idea": "Show what ₹5000 per month investing looks like after 10 years using real numbers", "why_it_works": "Compound interest visuals are consistently the most-saved finance content format", "win_score": 9},
+        {"idea": "Explain one tax-saving hack most salaried people genuinely don't know about", "why_it_works": "Actionable money-saving content drives massive saves and shares year-round", "win_score": 9},
+        {"idea": "Compare renting vs buying a home in your city with actual current market numbers", "why_it_works": "This evergreen debate topic generates strong comment engagement every single time", "win_score": 8},
+        {"idea": "Share the 3 money mistakes you made in your 20s and what you would do differently", "why_it_works": "Honest mistake content outperforms polished advice in finance — audiences crave authenticity", "win_score": 9},
+        {"idea": "Explain what an index fund is using a cricket team analogy", "why_it_works": "Simplified relatable analogies for complex topics consistently outperform in this niche", "win_score": 8},
+        {"idea": "Show your actual monthly budget breakdown — income, fixed expenses, savings split", "why_it_works": "Real transparency outperforms theory — audiences crave authentic money content", "win_score": 8},
+        {"idea": "React to a popular financial influencer's advice and share your honest take", "why_it_works": "Opinion content drives comments and positions you as a trusted independent voice", "win_score": 7},
+        {"idea": "Explain the difference between good debt and bad debt using real-life examples", "why_it_works": "Counterintuitive framing makes people stop and reconsider — drives high watch time", "win_score": 8},
+        {"idea": "Show what happens if you invest your Netflix subscription amount monthly for 20 years", "why_it_works": "Relatable micro-comparisons make big numbers feel achievable and instantly shareable", "win_score": 9},
+    ],
+    "Fashion": [
+        {"idea": "Style the same white shirt 5 different ways for 5 completely different occasions", "why_it_works": "Outfit variation content has the highest save rate in fashion — it is pure utility", "win_score": 9},
+        {"idea": "Show a complete outfit under ₹1000 that actually looks expensive and polished", "why_it_works": "Budget fashion content reaches the widest audience and triggers strong share impulses", "win_score": 9},
+        {"idea": "Recreate a celebrity outfit using items from your existing wardrobe", "why_it_works": "Celebrity tie-in expands reach while showcasing your styling creativity and skill", "win_score": 8},
+        {"idea": "Do an honest wardrobe declutter and show what actually stays versus what goes and why", "why_it_works": "Declutter content feels authentic and deeply relatable — drives strong engagement", "win_score": 7},
+        {"idea": "Show 3 outfit mistakes that make you look underdressed even in otherwise nice clothes", "why_it_works": "Problem-identification format creates saves among people actively wanting to improve", "win_score": 8},
+        {"idea": "Style one statement piece 3 ways from casual daytime to formal evening", "why_it_works": "Versatility content answers a specific shopping question your audience regularly has", "win_score": 8},
+        {"idea": "Show your morning outfit selection process — what you reject and exactly why", "why_it_works": "Behind-the-process content feels intimate and drives unusually strong watch time", "win_score": 7},
+        {"idea": "Thrift store haul with a full before and after styling reveal on each piece", "why_it_works": "Thrift hauls maintain sustained high engagement across all fashion demographics", "win_score": 8},
+        {"idea": "Explain what fit actually means for different body types with real visual examples", "why_it_works": "Inclusive practical content drives saves and shares across all body types equally", "win_score": 8},
+        {"idea": "Build a capsule wardrobe for one season — exact pieces and why they all work together", "why_it_works": "Capsule wardrobe content is perpetually saved — extremely high long-tail content value", "win_score": 8},
+    ],
+    "Food": [
+        {"idea": "Make a restaurant-quality dish at home in under 20 minutes from start to plate", "why_it_works": "Speed combined with quality is the highest-converting hook in all food content", "win_score": 9},
+        {"idea": "Show 5 different ways to use leftover rice that you actually want to eat again", "why_it_works": "Leftover transformation content solves a daily problem — huge consistent save rate", "win_score": 8},
+        {"idea": "Cook a full week of lunch meals in one Sunday session spending under ₹500 total", "why_it_works": "Budget meal prep content reaches the broadest and most engaged food audience", "win_score": 9},
+        {"idea": "Recreate a popular restaurant dish at home and honestly rate which version wins", "why_it_works": "Comparison format creates strong engagement from viewers loyal to that restaurant", "win_score": 8},
+        {"idea": "Show the one ingredient that makes your everyday dal taste genuinely restaurant-level", "why_it_works": "Secret ingredient reveals drive shares — people love passing these discoveries on", "win_score": 9},
+        {"idea": "Make a high-protein meal that genuinely does not taste like diet food", "why_it_works": "Health meets taste is the fastest growing intersection in food content right now", "win_score": 8},
+        {"idea": "Do a 5-ingredient challenge — what is the best dish you can make with only 5 things", "why_it_works": "Constraint-based cooking challenges are highly watchable and shareable by nature", "win_score": 7},
+        {"idea": "Show your honest reaction tasting 3 trending food products from the internet", "why_it_works": "Taste test reactions have extremely high completion rates across all food content", "win_score": 8},
+        {"idea": "Make the most famous street food from your city and explain exactly what makes it work", "why_it_works": "Local food pride content travels well and hits strong regional identity notes with audiences", "win_score": 8},
+        {"idea": "Show what a nutritionist actually eats in a day versus what most people assume they eat", "why_it_works": "Expectation vs reality format in food content consistently surprises and retains viewers", "win_score": 8},
+    ],
+    "Tech": [
+        {"idea": "Show 5 free tools that replace expensive software most people are still paying for", "why_it_works": "Money-saving tool content is the most-saved category in all of tech content", "win_score": 9},
+        {"idea": "Explain a hidden phone feature that most people who own the phone don't know exists", "why_it_works": "Hidden features always generate genuine surprise reactions and strong share impulse", "win_score": 9},
+        {"idea": "Review a tech product honestly after actually using it every day for 30 days straight", "why_it_works": "Long-term honest reviews are rare — audiences trust and save them heavily", "win_score": 8},
+        {"idea": "Show your complete desk setup and the exact reasoning behind every single item choice", "why_it_works": "Setup tours have sustained high engagement — people study them to plan their own", "win_score": 8},
+        {"idea": "Debunk the most common tech myth you keep seeing spread on the internet right now", "why_it_works": "Myth-busting creates comment debate which feeds the algorithm with strong momentum", "win_score": 8},
+        {"idea": "Show how you use AI tools to complete 3 hours of work in under 30 minutes", "why_it_works": "Productivity using AI is the top growing tech content category across all platforms this year", "win_score": 9},
+        {"idea": "Explain what is actually happening technically when you click forgot password", "why_it_works": "Demystifying everyday tech moments creates strong aha-moment watch experiences", "win_score": 7},
+        {"idea": "Compare the cheapest versus most expensive version of a popular gadget — is the price worth it", "why_it_works": "Value comparison content helps purchasing decisions and gets heavily saved before buying", "win_score": 8},
+        {"idea": "Show the browser extensions you genuinely use every single day that make your workflow faster", "why_it_works": "Tool recommendations from someone who actually uses them convert extremely well with audiences", "win_score": 8},
+        {"idea": "React to a tech prediction from 10 years ago and show how accurate or wrong it actually was", "why_it_works": "Throwback comparison creates nostalgia and triggers strong comment discussion reliably", "win_score": 7},
+    ],
+    "Travel": [
+        {"idea": "Show a completely hidden spot in a popular city that most tourists entirely miss", "why_it_works": "Insider tip content is saved at very high rates by people actively planning their trips", "win_score": 9},
+        {"idea": "Break down your complete travel budget for an entire trip — every single expense itemized", "why_it_works": "Transparent budget breakdowns answer the one question everyone has but nobody ever answers", "win_score": 9},
+        {"idea": "Show what a solo travel day actually looks like from morning to night in real time", "why_it_works": "Day-in-my-life format for solo travel answers fears and creates aspiration simultaneously", "win_score": 8},
+        {"idea": "Share 3 things you genuinely wish someone had told you before your first international trip", "why_it_works": "First-timer advice content is searched heavily and generates very strong save behavior", "win_score": 8},
+        {"idea": "Show exactly how to find flights at 50 percent cheaper than what booking apps show you", "why_it_works": "Money-saving travel hacks are the most viral content category in all of travel", "win_score": 9},
+        {"idea": "Rate 5 different types of accommodation from budget hostel to luxury hotel honestly", "why_it_works": "Comparison ratings help people make real decisions — strong save and comment trigger", "win_score": 7},
+        {"idea": "Show what a complete weekend trip from your city actually looks like under ₹5000 total", "why_it_works": "Budget weekend escape content gets saved by local audiences every single time consistently", "win_score": 9},
+        {"idea": "Share your honest travel mistakes that cost you real money or significant time on your last trip", "why_it_works": "Failure content feels authentic and saves your audience from making the exact same mistakes", "win_score": 8},
+        {"idea": "Show how you pack everything for a week-long trip in only a carry-on bag", "why_it_works": "Packing efficiency is perennially high-engagement travel content — everyone wants this skill", "win_score": 8},
+        {"idea": "Create a complete itinerary for an underrated destination in your own country", "why_it_works": "Domestic destination guides serve a massive audience that can immediately act on the information", "win_score": 8},
+    ],
+    "Education": [
+        {"idea": "Explain one complex concept from your niche using only a single 60-second analogy", "why_it_works": "Simplification content builds authority and gets shared by people who finally understand it", "win_score": 9},
+        {"idea": "Show the specific study technique that actually improved your grades or knowledge retention", "why_it_works": "Personal proof beats generic advice — performance content with real results drives strong saves", "win_score": 8},
+        {"idea": "Break down what nobody actually tells you about entering your field of study or career", "why_it_works": "Behind-the-curtain career content fills a real knowledge gap that your audience is searching for", "win_score": 8},
+        {"idea": "Share the 3 free resources you used to learn your skill better than any paid course", "why_it_works": "Free alternative recommendations are some of the most bookmarked education content online", "win_score": 9},
+        {"idea": "Explain the Feynman learning technique and then demonstrate it live on a topic in your niche", "why_it_works": "Meta-learning content is deeply valued and shared widely by ambitious self-learners", "win_score": 8},
+        {"idea": "Show exactly how you structure your notes for a complex topic and precisely why it works", "why_it_works": "Note-taking content consistently gets saved — visual proof makes the method credible to viewers", "win_score": 7},
+        {"idea": "Debunk the most common misconception about your subject that most beginners still believe", "why_it_works": "Misconception correction creates strong trust and drives protective comment sharing", "win_score": 8},
+        {"idea": "Show a complete roadmap to learn your skill from absolute zero to job-ready in 6 months", "why_it_works": "Roadmap content is the most bookmarked format in education — high ongoing long-tail value", "win_score": 9},
+        {"idea": "Share what you would study completely differently if you were starting your education fresh today", "why_it_works": "Hindsight content creates value from experience that absolute beginners simply cannot get elsewhere", "win_score": 8},
+        {"idea": "Teach one practical skill in your field that takes 5 minutes to learn but saves hours weekly", "why_it_works": "High ROI skill content triggers immediate saves and shares from productivity-focused audiences", "win_score": 9},
+    ],
+    "Lifestyle": [
+        {"idea": "Show your honest morning routine — what you actually do versus what looks polished on camera", "why_it_works": "Authentic versus performative contrast creates strong trust and genuine viewer connection", "win_score": 8},
+        {"idea": "Document one week of building a new habit and show the genuinely honest results on day 7", "why_it_works": "Short-term habit challenges have high completion rates and generate daily return views", "win_score": 8},
+        {"idea": "Show how you redesigned one room in your home without spending a significant amount", "why_it_works": "Low-budget transformation content drives saves and shares across all lifestyle audiences", "win_score": 9},
+        {"idea": "Share 5 specific small daily habits that genuinely changed your productivity or wellbeing", "why_it_works": "Actionable habits lists are the most-saved lifestyle content format consistently across platforms", "win_score": 9},
+        {"idea": "Spend a full day completely phone-free and share honestly what actually happened", "why_it_works": "Digital detox content resonates deeply — very high comment volume from people who relate", "win_score": 8},
+        {"idea": "Show your honest Sunday reset routine that actually sets your entire week up right", "why_it_works": "Sunday routine content peaks every weekend and gets replayed before each new week starts", "win_score": 8},
+        {"idea": "React to the morning routine of a famous person and show what is realistically achievable for you", "why_it_works": "Reality check on aspirational content creates instant relatable connection and drives discussion", "win_score": 7},
+        {"idea": "Show the specific app or system you use to actually stay organized every single day", "why_it_works": "Personal productivity system reveals are saved heavily by people wanting real-life structure", "win_score": 8},
+        {"idea": "Document what genuinely happens when you wake up at 5am every day for 7 days straight", "why_it_works": "Challenge documentation is consistently one of the highest-engagement lifestyle content formats", "win_score": 9},
+        {"idea": "Share 3 purchases under ₹500 that genuinely improved your daily life in a meaningful way", "why_it_works": "Specific low-cost recommendation content gets shared and saved — extremely high action rate", "win_score": 8},
+    ],
+    "Comedy": [
+        {"idea": "Recreate the most absurdly accurate Indian parent conversation you have had this week", "why_it_works": "Hyper-relatable Indian family content travels reliably across all demographics consistently", "win_score": 9},
+        {"idea": "Do a POV of every type of person you encounter at the gym or local chai shop", "why_it_works": "Character POV content with strong observational comedy consistently goes viral", "win_score": 9},
+        {"idea": "React to the most cringe stock photo or random ad you find with real-time commentary", "why_it_works": "Reaction comedy with a specific clear target is easy to follow and instantly shareable", "win_score": 8},
+        {"idea": "Show the difference between what you planned versus what actually happened in your most recent fail", "why_it_works": "Expectation versus reality with personal stakes makes people feel genuinely seen and very shareable", "win_score": 9},
+        {"idea": "Do impressions of 5 different types of people who use Instagram in your specific niche", "why_it_works": "Niche self-aware comedy builds strong community identity and in-group sharing behavior", "win_score": 8},
+        {"idea": "Recreate a completely mundane everyday situation with overdramatic full Bollywood energy", "why_it_works": "Cultural comedy with exaggeration is a reliable viral format specifically for Indian audiences", "win_score": 9},
+        {"idea": "Show a conversation between your past self and current self about something genuinely embarrassing", "why_it_works": "Time-travel self-roast format creates strong personal comedy with very high authenticity", "win_score": 8},
+        {"idea": "React honestly to the weirdest DMs or comments you have actually received from your audience", "why_it_works": "Audience interaction comedy builds parasocial connection while generating strong genuine laughs", "win_score": 7},
+        {"idea": "Do a voice-over on a random stock video clip with completely unexpected surprise commentary", "why_it_works": "Unexpected audio-visual mismatch comedy is one of the most rewatch-able content formats", "win_score": 8},
+        {"idea": "Show the full internal monologue of a completely normal everyday situation taken way too seriously", "why_it_works": "Internal voice comedy is deeply relatable and generates strong comment identification from viewers", "win_score": 8},
+    ],
+    "Business": [
+        {"idea": "Share the exact specific moment you realized your business idea would genuinely work", "why_it_works": "Origin story content builds strong emotional investment and deep follower loyalty", "win_score": 8},
+        {"idea": "Show what a realistic day actually looks like running your business — including the genuinely bad parts", "why_it_works": "Honest entrepreneurship content is rare and highly trusted in a sea of constant highlight reels", "win_score": 9},
+        {"idea": "Break down your very first paying customer story — exactly how you got them and what happened next", "why_it_works": "First customer stories are benchmarks that every aspiring founder measures their own progress against", "win_score": 8},
+        {"idea": "Share 3 business tools you genuinely use every day that cost under ₹500 per month combined", "why_it_works": "Low-cost tool stacks are heavily bookmarked by early-stage founders and freelancers everywhere", "win_score": 8},
+        {"idea": "Show how you handled your worst business failure and genuinely came out the other side stronger", "why_it_works": "Failure resilience content builds the deepest trust and generates the highest comment rates", "win_score": 9},
+        {"idea": "Explain one specific pricing mistake you made very early on and exactly how you fixed it", "why_it_works": "Pricing is the most anxious topic for new founders — specific lessons drive saves and shares", "win_score": 9},
+        {"idea": "Show what you genuinely wish you had known before starting your business in one honest reel", "why_it_works": "Pre-entry wisdom content is saved by thousands who are about to begin the exact same journey", "win_score": 9},
+        {"idea": "Break down exactly how you got your first 100 customers without spending on paid advertising", "why_it_works": "Organic growth case studies are the most-shared business content because real results are proof", "win_score": 9},
+        {"idea": "Share an honest revenue update for your business this month with full real context behind the numbers", "why_it_works": "Revenue transparency is rare and commands disproportionate trust from business audiences", "win_score": 8},
+        {"idea": "Explain the one skill that would have made you profitable 6 months earlier if you had learned it sooner", "why_it_works": "Specific skill regret content creates instant saves from people currently at that earlier stage", "win_score": 8},
+    ],
+    "Gaming": [
+        {"idea": "Show the one settings change that immediately improved your performance in a popular game", "why_it_works": "Performance tip content is searched and saved heavily before every ranked session", "win_score": 9},
+        {"idea": "React to your oldest gaming clip and show honestly how much your skills have actually improved", "why_it_works": "Skill progression content creates strong personal investment and drives very high comment engagement", "win_score": 8},
+        {"idea": "Show the top 3 free-to-play games that are genuinely worth your real time right now", "why_it_works": "Free game recommendations solve the single biggest barrier for new gamers — money", "win_score": 8},
+        {"idea": "Break down the biggest single mistake that absolute beginners make in the game you play most", "why_it_works": "Beginner mistake content gets saved by newcomers and shared widely by veterans who relate", "win_score": 8},
+        {"idea": "Show a clutch moment or genuinely insane play from your recent session with full honest commentary", "why_it_works": "Highlight content with personal storytelling has dramatically higher engagement than raw gameplay clips", "win_score": 8},
+        {"idea": "Compare your gaming setup when you first started versus exactly what it looks like today", "why_it_works": "Evolution content creates nostalgia and aspiration at the same time — very high save rate", "win_score": 8},
+        {"idea": "Rate the top 5 games releasing this month and give your completely honest recommendation on each", "why_it_works": "Upcoming release opinions drive strong comment debate and help your audience make real decisions", "win_score": 7},
+        {"idea": "Show one genuinely advanced technique in a game that took you months to master explained simply", "why_it_works": "Technical skill sharing positions you as a real authority and gets saved by players wanting to improve", "win_score": 9},
+        {"idea": "React to a viral gaming moment and share your honest expert take as someone who actually plays", "why_it_works": "Credible expert reaction to viral content reaches both the gaming audience and mainstream viewers", "win_score": 8},
+        {"idea": "Show what your complete ranked journey looked like this entire season — peaks, tilts, and real lessons", "why_it_works": "Season recap content resonates deeply with competitive players and drives strong empathetic comments", "win_score": 7},
+    ],
+    "Beauty": [
+        {"idea": "Do a full face using only drugstore products under ₹1000 total and show the completely honest result", "why_it_works": "Drugstore budget beauty is the highest-reach category — accessible and relevant to every single viewer", "win_score": 9},
+        {"idea": "Show the specific skincare routine order mistake most people make that genuinely reduces product effectiveness", "why_it_works": "Mistake-correction content creates strong saves from people who suspect they might be doing it wrong", "win_score": 9},
+        {"idea": "Review a viral beauty product completely honestly after 30 days of actual consistent daily use", "why_it_works": "Long-term real reviews are trusted far more than first impressions — extremely high save rate", "win_score": 8},
+        {"idea": "Show the exact 5-minute makeup look you actually do every time you are genuinely running late", "why_it_works": "Speed combined with real utility drives saves from the majority who never have hours to spare", "win_score": 9},
+        {"idea": "Debunk the skincare ingredient myth that most beauty accounts are still actively spreading today", "why_it_works": "Misinformation correction builds strong authority and generates very protective comment sharing", "win_score": 8},
+        {"idea": "Compare the popular expensive moisturizer versus an affordable dupe at a fraction of the cost", "why_it_works": "Dupe content is consistently viral — audiences love saving money without sacrificing real results", "win_score": 9},
+        {"idea": "Show what your skin actually looks like without any makeup in completely honest lighting", "why_it_works": "Radical authenticity in beauty builds the kind of trust that polished content simply cannot achieve", "win_score": 8},
+        {"idea": "Recreate a celebrity red carpet look using only drugstore alternatives and show the full result", "why_it_works": "Celebrity tie-in with accessible products combines aspiration with genuine achievability perfectly", "win_score": 8},
+        {"idea": "Show your complete nighttime skincare routine and explain precisely why each step is in that exact order", "why_it_works": "Educational routine content with genuine reasoning is saved for reference repeatedly over time", "win_score": 8},
+        {"idea": "Show 3 makeup techniques you discovered that completely changed how your face actually photographs", "why_it_works": "Photography-optimized beauty tips solve a specific modern problem that audiences care deeply about", "win_score": 8},
+    ],
+}
+
+# Lowercase alias keys for case-insensitive lookup
+_LOWERCASE_MAP = {k.lower(): k for k in FALLBACK_IDEAS}
+
+
+def get_fallback_ideas(niche: str) -> list[dict]:
+    """
+    Return the fallback idea list for a given niche.
+    Falls back to Lifestyle if the niche is not found.
+    """
+    key = _LOWERCASE_MAP.get(niche.lower().strip(), "Lifestyle")
+    return FALLBACK_IDEAS.get(key, FALLBACK_IDEAS["Lifestyle"])
