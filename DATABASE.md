@@ -166,9 +166,14 @@ JOIN:
 - is_favourite  : bool
 - created_at    : timestamptz
 - updated_at    : timestamptz
+- why_it_works  : text
+- win_score     : int2
+- trend_match   : text
+- trend_id      : uuid
 
 JOIN:
 - ideas.user_id -> user_profile.id
+- ideas.trend_id -> current_trends.id
 
 
 <!-- RELATIONSHIPS -->
