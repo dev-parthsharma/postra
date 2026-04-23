@@ -60,6 +60,10 @@ class ConfirmIdeaRequest(BaseModel):
     idea_id: str
     idea_text: str
 
+class ImproveIdeaRequest(BaseModel):
+    idea_id: str
+    idea_text: str = Field(..., min_length=1, max_length=500)
+
 class SendMessageRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=2000)
 
@@ -174,6 +178,47 @@ async def save_user_idea(
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/ideas/improve")
+async def improve_idea(
+    body: ImproveIdeaRequest,
+    user_id: str = Depends(get_current_user_id),
+    supabase=Depends(get_supabase),
+):
+    """
+    Improve an existing idea using AI (Gemini → Groq fallback).
+    Returns: { improved_idea: str, why_it_works: str, win_score: int }
+    """
+    try:
+        profile = get_user_profile(supabase, user_id) or {}
+        niche = profile.get("niche", "Lifestyle")
+        language = profile.get("language", "english")
+
+        result = await ideas_service.handle_improve_idea(
+            idea_text=body.idea_text,
+            niche=niche,
+            language=language,
+        )
+        return result
+
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "ai_unavailable",
+                "message": "AI is temporarily unavailable. Please try again later.",
+            },
+        )
+    except Exception as e:
+        print("IMPROVE IDEA ERROR:", str(e))
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "ai_unavailable",
+                "message": "AI is temporarily unavailable. Please try again later.",
+            },
+        )
 
 
 @router.patch("/ideas/favourite")

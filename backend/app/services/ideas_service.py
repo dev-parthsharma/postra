@@ -262,7 +262,7 @@ Rules:
 - recommended idea should be the strongest one (highest viral/engagement potential)
 - alternatives should be solid backups that complement the recommended
 - win_score: realistic integer 1-10 reflecting expected engagement potential
-- why_it_works: 1 short sentence (max 15 words) explaining the core reason this idea works
+- why_it_works: Write a compelling 1-sentence explanation (10-18 words) that clearly explains the SPECIFIC psychological or strategic reason this content format performs well. Be concrete and specific — avoid vague words like "relatable", "engaging", "valuable". Instead name the exact mechanism: save-triggers, comment-bait, identity-signaling, FOMO, authority-building, curiosity gaps, etc.
 {lang_rule}
 - Return ONLY valid JSON, no markdown, no explanation, no extra text
 
@@ -270,18 +270,18 @@ Output format (strict JSON):
 {{
   "recommended": {{
     "idea": "Idea sentence here",
-    "why_it_works": "One short reason sentence",
+    "why_it_works": "Specific 10-18 word sentence explaining the exact psychological or strategic mechanism",
     "win_score": 8
   }},
   "alternatives": [
     {{
       "idea": "Alternative idea one",
-      "why_it_works": "One short reason sentence",
+      "why_it_works": "Specific 10-18 word sentence explaining the exact psychological or strategic mechanism",
       "win_score": 7
     }},
     {{
       "idea": "Alternative idea two",
-      "why_it_works": "One short reason sentence",
+      "why_it_works": "Specific 10-18 word sentence explaining the exact psychological or strategic mechanism",
       "win_score": 6
     }}
   ]
@@ -344,10 +344,10 @@ def generate_structured_ideas(
     exclude_ideas: list[str],
 ) -> dict:
     """
-    Generate structured ideas via Gemini.
+    Generate structured ideas via Gemini (with Groq fallback).
     Returns: { recommended: {...}, alternatives: [{...}, {...}] }
     Raises ValueError on malformed AI response.
-    Raises RuntimeError (from llm_service) if all Gemini rounds fail.
+    Raises RuntimeError (from llm_service) if all rounds fail.
     """
     prompt = _build_generation_prompt(niche, tone, style, language, trends, exclude_ideas)
     raw = generate_content(prompt)
@@ -379,7 +379,7 @@ def _build_fallback_result(niche: str, user_id: str) -> dict:
     while len(alternatives) < 2:
         alternatives.append({
             "idea": "Create a day-in-your-life reel showing your real daily routine",
-            "why_it_works": "Authentic daily content builds strong personal connection with audiences",
+            "why_it_works": "Authentic daily content builds strong personal connection with audiences who crave transparency",
             "win_score": 7,
         })
 
@@ -440,7 +440,7 @@ async def handle_generate_ideas(supabase, user_id: str) -> dict:
             exclude_ideas=exclude_list,
         )
     except Exception as e:
-        print(f"[ideas_service] Gemini failed, using fallback: {e}")
+        print(f"[ideas_service] AI generation failed, using fallback: {e}")
         structured = _build_fallback_result(niche, user_id)
         is_fallback = True
 
@@ -557,6 +557,74 @@ async def handle_save_user_idea(supabase, user_id: str, idea_text: str) -> dict:
 
     saved = insert_ideas(supabase, user_id, [idea_text], source="user")
     return saved[0]
+
+
+async def handle_improve_idea(idea_text: str, niche: str, language: str) -> dict:
+    """
+    Improve an existing idea using AI.
+    Returns: { improved_idea: str, why_it_works: str, win_score: int }
+    Raises RuntimeError if AI is completely unavailable.
+    """
+    if language == "hinglish":
+        prompt = (
+            f"Tu ek expert Instagram content strategist hai.\n\n"
+            f"Creator ka niche: {niche}\n\n"
+            f"Original idea: \"{idea_text}\"\n\n"
+            f"Is idea ko improve karo:\n"
+            f"- Zyada specific aur actionable banao\n"
+            f"- Viral potential badao\n"
+            f"- Clear aur punchy rakho (max 20 words)\n"
+            f"- Hinglish mein likho\n\n"
+            f"ONLY valid JSON return karo, koi explanation nahi:\n"
+            f"{{\n"
+            f'  "improved_idea": "improved idea text here",\n'
+            f'  "why_it_works": "specific 10-18 word explanation of the psychological or strategic mechanism",\n'
+            f'  "win_score": 8\n'
+            f"}}"
+        )
+    else:
+        prompt = (
+            f"You are an expert Instagram content strategist.\n\n"
+            f"Creator niche: {niche}\n\n"
+            f"Original idea: \"{idea_text}\"\n\n"
+            f"Improve this idea by:\n"
+            f"- Making it more specific and actionable\n"
+            f"- Increasing viral/engagement potential\n"
+            f"- Keeping it clear and punchy (max 20 words)\n"
+            f"- Preserving the core concept but elevating the angle\n\n"
+            f"Return ONLY valid JSON, no explanation, no markdown:\n"
+            f"{{\n"
+            f'  "improved_idea": "improved idea text here",\n'
+            f'  "why_it_works": "specific 10-18 word sentence explaining the exact psychological or strategic mechanism",\n'
+            f'  "win_score": 8\n'
+            f"}}"
+        )
+
+    raw = generate_content(prompt)
+
+    # Parse response
+    text = raw.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        lines = lines[1:] if lines[0].startswith("```") else lines
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if match:
+            parsed = json.loads(match.group())
+        else:
+            raise ValueError(f"AI returned malformed JSON for improve: {raw[:200]}")
+
+    return {
+        "improved_idea": str(parsed.get("improved_idea", "")).strip() or idea_text,
+        "why_it_works":  str(parsed.get("why_it_works", "")).strip(),
+        "win_score":     max(1, min(10, int(parsed.get("win_score", 7)))),
+    }
 
 
 def handle_toggle_favourite(supabase, user_id: str, idea_id: str, is_favourite: bool) -> dict:

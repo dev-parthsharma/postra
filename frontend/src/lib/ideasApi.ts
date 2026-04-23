@@ -90,6 +90,13 @@ export interface GeneratedIdeasResult {
   _fallback?: boolean;
 }
 
+/** Response from /ideas/improve */
+export interface ImprovedIdeaResult {
+  improved_idea: string;
+  why_it_works: string;
+  win_score: number;
+}
+
 export interface Chat {
   id: string;
   user_id: string;
@@ -122,6 +129,15 @@ export async function saveUserIdea(idea: string): Promise<Idea> {
     type: data.type,
     message: data.message,
   };
+}
+
+export async function improveIdea(ideaId: string, ideaText: string): Promise<ImprovedIdeaResult> {
+  const res = await fetch(`${BASE}/api/ideas/improve`, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ idea_id: ideaId, idea_text: ideaText }),
+  });
+  return handleResponse<ImprovedIdeaResult>(res);
 }
 
 export async function toggleFavourite(ideaId: string, isFavourite: boolean): Promise<Idea> {
