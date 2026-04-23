@@ -61,7 +61,8 @@ function Spinner({ small = false }: { small?: boolean }) {
   );
 }
 
-function WinScore({ score }: { score: number }) {
+function WinScore({ score }: { score: number | null | undefined }) {
+  if (!score) return null;
   const color =
     score >= 8 ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" :
     score >= 6 ? "text-orange-400 bg-orange-500/10 border-orange-500/20" :
@@ -415,7 +416,7 @@ function IdeaRow({
               <WinScore score={idea.win_score} />
             )}
 
-            {idea.in_progress && (
+            {!!idea.in_progress && (
               <span className="text-xs px-1.5 py-0.5 rounded border text-blue-400/70 bg-blue-500/5 border-blue-500/15">
                 ⏳ In progress
               </span>
