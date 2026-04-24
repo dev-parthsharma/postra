@@ -1,7 +1,4 @@
 # backend/app/services/groq_service.py
-# Single-attempt Groq wrapper.
-# Picks one random key from the pool and tries once — no retry.
-# Raises RuntimeError on any failure so the caller can fall back to Gemini.
 
 import random
 import requests

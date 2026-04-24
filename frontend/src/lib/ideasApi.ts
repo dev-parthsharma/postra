@@ -108,10 +108,15 @@ export interface Chat {
 
 // ── API calls ────────────────────────────────────────────────────────────────
 
-export async function generateIdeas(): Promise<GeneratedIdeasResult> {
+/**
+ * Generate 3 fresh ideas. Accepts an optional AbortSignal so callers can
+ * cancel the request (e.g. on component unmount or Strict Mode double-mount).
+ */
+export async function generateIdeas(signal?: AbortSignal): Promise<GeneratedIdeasResult> {
   const res = await fetch(`${BASE}/api/ideas/generate`, {
     method: "POST",
     headers: await authHeaders(),
+    signal,
   });
   return handleResponse<GeneratedIdeasResult>(res);
 }

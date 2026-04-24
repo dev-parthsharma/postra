@@ -1,33 +1,79 @@
-// frontend/src/components/NewPostModal.tsx
-// Full New Post overlay. Uses useNewPost hook for all logic.
-// On "done", navigates to /chat/:chatId instead of just closing.
+// src/components/NewPostModal.tsx
+// Modal triggered from Dashboard's "Generate Idea" button.
+// Mirrors the loading-message cycling behaviour of the Ideas page.
 
-import { useRef, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useNewPost } from "../hooks/useNewPost";
-import type { Chat, Idea } from "../lib/ideasApi";
+import {
+  generateIdeas,
+  confirmIdea,
+  type Chat,
+  type GeneratedIdeasResult,
+  type IdeaWithMeta,
+  type Idea,
+} from "../lib/ideasApi";
 
-interface Props {
-  onClose: () => void;
-  onChatCreated?: (chat: Chat) => void;
+// ── Loading messages (same set as Ideas page) ─────────────────────────────────
+const LOADING_MESSAGES = [
+  "Generating ideas...",
+  "Finding something strong for your niche...",
+  "Checking what fits best...",
+  "Almost there...",
+  "Putting finishing touches...",
+];
+
+function useLoadingMessage(active: boolean): string {
+  const [index, setIndex] = useState(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (active) {
+      setIndex(0);
+      intervalRef.current = setInterval(() => {
+        setIndex((i) => (i + 1) % LOADING_MESSAGES.length);
+      }, 1800);
+    } else {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    }
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [active]);
+
+  return LOADING_MESSAGES[index];
 }
 
-function Spinner() {
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function Spinner({ small = false }: { small?: boolean }) {
   return (
-    <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    <svg
+      className={`animate-spin ${small ? "w-3.5 h-3.5" : "w-5 h-5"}`}
+      viewBox="0 0 24 24"
+      fill="none"
+    >
+      <circle
+        className="opacity-25"
+        cx="12" cy="12" r="10"
+        stroke="currentColor" strokeWidth="4"
+      />
+      <path
+        className="opacity-75"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+      />
     </svg>
   );
 }
 
-function WinScoreBadge({ score }: { score: number }) {
+function WinScore({ score }: { score: number | null | undefined }) {
+  if (!score) return null;
   const color =
     score >= 8
-      ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+      ? "text-emerald-600 bg-emerald-50 border-emerald-200 dark:text-emerald-400 dark:bg-emerald-500/10 dark:border-emerald-500/20"
       : score >= 6
-      ? "text-orange-400 bg-orange-500/10 border-orange-500/20"
-      : "text-zinc-500 bg-zinc-800 border-zinc-700";
+      ? "text-orange-600 bg-orange-50 border-orange-200 dark:text-orange-400 dark:bg-orange-500/10 dark:border-orange-500/20"
+      : "text-slate-500 bg-slate-100 border-slate-200 dark:text-zinc-500 dark:bg-zinc-800 dark:border-zinc-700";
   return (
     <span
       className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${color}`}
@@ -40,363 +86,337 @@ function WinScoreBadge({ score }: { score: number }) {
   );
 }
 
-function IdeaCard({
-  idea,
-  onSelect,
-  onToggleFavourite,
-}: {
-  idea: Idea;
-  onSelect: (idea: Idea) => void;
-  onToggleFavourite: (idea: Idea) => void;
-}) {
+// ── Skeleton shown while generating ──────────────────────────────────────────
+
+function GeneratingSkeleton({ message }: { message: string }) {
   return (
-    <div
-      className="group relative bg-zinc-800 border border-zinc-700 hover:border-orange-500/50 rounded-xl p-4 transition-all duration-200 cursor-pointer"
-      onClick={() => onSelect(idea)}
-    >
-      {/* Top row: score + source + favourite */}
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <div className="flex items-center gap-2 flex-wrap">
-          {idea.win_score != null && idea.win_score > 0 && (
-            <WinScoreBadge score={idea.win_score} />
-          )}
-          <span className="text-[10px] text-zinc-500">
-            {idea.source === "postra" ? "✨ AI" : "✍️ You"}
-          </span>
-        </div>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleFavourite(idea);
-          }}
-          className={`flex-shrink-0 p-1 rounded-lg transition-all duration-150 ${
-            idea.is_favourite ? "text-orange-400" : "text-zinc-600 hover:text-zinc-400"
-          }`}
-          aria-label={idea.is_favourite ? "Remove from favourites" : "Add to favourites"}
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill={idea.is_favourite ? "currentColor" : "none"}
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14 2 9.27l6.91-1.01L12 2z" />
-          </svg>
-        </button>
+    <div className="space-y-4 p-5">
+      {/* Status row */}
+      <div className="flex items-center justify-center gap-2 py-2">
+        <Spinner />
+        <span className="text-sm text-slate-500 dark:text-zinc-400 font-medium">
+          {message}
+        </span>
       </div>
 
-      {/* Idea text */}
-      <p className="text-zinc-200 text-sm leading-relaxed">{idea.idea}</p>
+      {/* Animated dots */}
+      <div className="flex justify-center gap-1.5">
+        {[0, 1, 2].map((i) => (
+          <div
+            key={i}
+            className="w-1.5 h-1.5 rounded-full bg-orange-400 dark:bg-orange-500 animate-bounce"
+            style={{ animationDelay: `${i * 150}ms` }}
+          />
+        ))}
+      </div>
 
-      {/* Why it works */}
-      {idea.why_it_works && (
-        <div className="flex items-start gap-1.5 mt-2">
-          <span className="text-orange-400 text-[10px] mt-0.5 flex-shrink-0">💡</span>
-          <p className="text-zinc-500 text-xs italic leading-relaxed">{idea.why_it_works}</p>
+      {/* Recommended skeleton */}
+      <div className="rounded-2xl border border-orange-200 dark:border-orange-500/15 bg-orange-50 dark:bg-orange-500/5 p-4 animate-pulse space-y-2">
+        <div className="flex gap-2 mb-3">
+          <div className="h-4 w-16 bg-orange-100 dark:bg-zinc-800 rounded-full" />
+          <div className="h-4 w-10 bg-orange-100 dark:bg-zinc-800 rounded-full" />
         </div>
-      )}
+        <div className="h-3.5 bg-orange-100 dark:bg-zinc-800 rounded w-full" />
+        <div className="h-3.5 bg-orange-100 dark:bg-zinc-800 rounded w-5/6" />
+        <div className="h-3 bg-orange-50 dark:bg-zinc-800/60 rounded w-4/6 mt-1" />
+        <div className="h-8 bg-orange-100 dark:bg-zinc-800 rounded-xl w-28 mt-3" />
+      </div>
 
-      <p className="text-zinc-600 text-xs mt-2.5 group-hover:text-orange-400 transition-colors">
-        Click to select →
-      </p>
+      {/* Alternative skeletons */}
+      {[0, 1].map((i) => (
+        <div
+          key={i}
+          className="rounded-xl border border-slate-200 dark:border-zinc-700/60 bg-slate-100/50 dark:bg-zinc-800/40 p-4 animate-pulse space-y-2"
+        >
+          <div className="h-3 bg-slate-200 dark:bg-zinc-700 rounded w-full" />
+          <div className="h-3 bg-slate-200 dark:bg-zinc-700 rounded w-4/5" />
+          <div className="h-3 bg-slate-100 dark:bg-zinc-700/60 rounded w-3/5" />
+        </div>
+      ))}
     </div>
   );
 }
 
-export default function NewPostModal({ onClose, onChatCreated }: Props) {
+// ── Idea card (recommended) ───────────────────────────────────────────────────
+
+function RecommendedCard({
+  idea,
+  onUse,
+  starting,
+}: {
+  idea: IdeaWithMeta;
+  onUse: (idea: IdeaWithMeta) => void;
+  starting: boolean;
+}) {
+  return (
+    <div className="relative bg-gradient-to-br from-orange-50 to-amber-50/50 dark:bg-none dark:bg-zinc-800/80 border border-orange-200 dark:border-orange-500/30 rounded-2xl p-4 transition-all">
+      <div className="flex items-center gap-2 flex-wrap mb-2">
+        <span className="text-[10px] font-bold text-orange-600 dark:text-orange-400 bg-orange-100 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 px-2 py-0.5 rounded-full uppercase tracking-wide">
+          🔥 Top pick
+        </span>
+        <WinScore score={idea.win_score} />
+      </div>
+
+      <p className="text-slate-800 dark:text-white text-sm font-medium leading-relaxed mb-2">
+        {idea.idea}
+      </p>
+
+      {idea.why_it_works && (
+        <div className="flex items-start gap-1.5 mb-3">
+          <span className="text-orange-500 text-[10px] mt-0.5 flex-shrink-0">💡</span>
+          <p className="text-slate-500 dark:text-zinc-200 text-xs italic leading-relaxed">
+            {idea.why_it_works}
+          </p>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={() => onUse(idea)}
+        disabled={starting}
+        className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-xs font-semibold transition-all disabled:opacity-50 shadow-md shadow-orange-500/20"
+      >
+        {starting ? <Spinner small /> : null}
+        {starting ? "Starting…" : "Start Chat →"}
+      </button>
+    </div>
+  );
+}
+
+// ── Alternative card ──────────────────────────────────────────────────────────
+
+function AlternativeCard({
+  idea,
+  onUse,
+  starting,
+}: {
+  idea: IdeaWithMeta;
+  onUse: (idea: IdeaWithMeta) => void;
+  starting: boolean;
+}) {
+  return (
+    <div className="bg-white dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-xl p-4 transition-all shadow-sm">
+      <p className="text-slate-800 dark:text-zinc-200 text-sm leading-relaxed mb-1">
+        {idea.idea}
+      </p>
+      {idea.why_it_works && (
+        <p className="text-slate-400 dark:text-zinc-500 text-xs italic mb-2 leading-relaxed">
+          {idea.why_it_works}
+        </p>
+      )}
+      <div className="flex items-center justify-between mt-2">
+        <WinScore score={idea.win_score} />
+        <button
+          type="button"
+          onClick={() => onUse(idea)}
+          disabled={starting}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 dark:bg-zinc-700 hover:bg-slate-700 dark:hover:bg-zinc-600 text-white dark:text-zinc-200 text-xs font-medium transition-all disabled:opacity-50"
+        >
+          {starting ? <Spinner small /> : null}
+          {starting ? "Starting…" : "Use this →"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Modal ────────────────────────────────────────────────────────────────
+
+interface NewPostModalProps {
+  onClose: () => void;
+  onChatCreated: (chat: Chat) => void;
+}
+
+type ModalState = "idle" | "generating" | "done" | "error";
+
+export default function NewPostModal({ onClose, onChatCreated }: NewPostModalProps) {
   const navigate = useNavigate();
 
-  const {
-    state,
-    setInputText,
-    submitUserIdea,
-    handleGenerate,
-    handleToggleFavourite,
-    handleSelectIdea,
-    handleBackFromConfirm,
-    handleConfirm,
-    reset,
-  } = useNewPost((chat) => onChatCreated?.(chat));
+  const [state, setState]           = useState<ModalState>("idle");
+  const [result, setResult]         = useState<GeneratedIdeasResult | null>(null);
+  const [error, setError]           = useState<string | null>(null);
+  const [startingId, setStartingId] = useState<string | null>(null);
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const loadingMessage = useLoadingMessage(state === "generating");
 
+  // Holds the AbortController for the current in-flight generate request.
+  // Strict Mode mounts twice in dev — the cleanup cancels the first call
+  // before the second fires, so only one HTTP request reaches the backend.
+  const abortRef = useRef<AbortController | null>(null);
+
+  const handleGenerate = async () => {
+    // Cancel any in-flight request before starting a new one
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setState("generating");
+    setError(null);
+    setResult(null);
+    try {
+      const res = await generateIdeas(controller.signal);
+      setResult(res);
+      setState("done");
+    } catch (e: unknown) {
+      if ((e as Error).name === "AbortError") return; // cancelled — do nothing
+      setError((e as Error).message || "Failed to generate ideas. Please try again.");
+      setState("error");
+    }
+  };
+
+  // Auto-generate on mount. Cleanup aborts the request if the component
+  // unmounts mid-flight (e.g. Strict Mode double-mount in development).
   useEffect(() => {
-    if (state.view === "input") setTimeout(() => textareaRef.current?.focus(), 80);
-  }, [state.view]);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") handleClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    handleGenerate();
+    return () => { abortRef.current?.abort(); };
   }, []);
 
-  const handleClose = () => {
-    reset();
+  const handleUse = async (idea: Idea) => {
+    setStartingId(idea.id);
+    try {
+      const chat = await confirmIdea(idea.id, idea.idea);
+      onChatCreated(chat);
+    } catch (e: unknown) {
+      console.error("Failed to start chat:", e);
+      setStartingId(null);
+    }
+  };
+
+  const handleGoToIdeas = () => {
     onClose();
+    navigate("/ideas");
   };
 
-  const handleGoToChat = () => {
-    if (!state.createdChat) return;
-    reset();
-    onClose();
-    navigate(`/chat/${state.createdChat.id}`);
+  // Close on backdrop click
+  const handleBackdrop = (e: React.MouseEvent) => {
+    if (e.target === e.currentTarget) onClose();
   };
 
-  const headerTitle: Record<typeof state.view, string> = {
-    input: "New Post",
-    generated: "Choose an idea",
-    confirming: "Confirm idea",
-    done: "Ready to go!",
-  };
-
-  const isGibberishError = state.error === "__gibberish__";
+  const isStarting = startingId !== null;
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center px-4"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) handleClose();
-      }}
+      className="fixed inset-0 z-50 bg-black/50 dark:bg-black/75 backdrop-blur-sm flex items-center justify-center px-4"
+      onClick={handleBackdrop}
     >
-      <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden">
+      <div className="w-full max-w-md bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
 
-        {/* ── Header ──────────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-zinc-800">
-          <div className="flex items-center gap-3">
-            {state.view === "confirming" && (
-              <button
-                type="button"
-                onClick={handleBackFromConfirm}
-                className="text-zinc-500 hover:text-zinc-300 transition-colors text-sm"
-              >
-                ←
-              </button>
+        {/* ── Header ── */}
+        <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-100 dark:border-zinc-800 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-base">✨</span>
+            <h3 className="text-slate-900 dark:text-white font-semibold text-sm">
+              {state === "generating"
+                ? "Generating Ideas"
+                : state === "done"
+                ? "Fresh Ideas for You"
+                : "Generate Ideas"}
+            </h3>
+            {result?._fallback && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-600 dark:text-amber-400 font-medium">
+                evergreen picks
+              </span>
             )}
-            <h2 className="text-white font-semibold text-base">{headerTitle[state.view]}</h2>
           </div>
           <button
             type="button"
-            onClick={handleClose}
-            className="text-zinc-500 hover:text-zinc-300 transition-colors p-1 rounded-lg hover:bg-zinc-800"
+            onClick={onClose}
+            className="text-slate-400 dark:text-zinc-500 hover:text-slate-600 dark:hover:text-zinc-300 transition-colors p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        <div className="p-6 space-y-4">
+        {/* ── Body ── */}
+        <div className="overflow-y-auto flex-1">
 
-          {/* ── View: input ─────────────────────────────────────────────── */}
-          {state.view === "input" && (
-            <>
-              <div>
-                <label className="text-zinc-400 text-xs font-medium uppercase tracking-wider mb-2 block">
-                  Write your idea
-                </label>
-                <textarea
-                  ref={textareaRef}
-                  value={state.inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (
-                      e.key === "Enter" &&
-                      (e.metaKey || e.ctrlKey) &&
-                      state.inputText.trim()
-                    ) {
-                      submitUserIdea();
-                    }
-                  }}
-                  rows={3}
-                  placeholder="e.g. A day-in-my-life reel showing my morning routine as a student..."
-                  className={`w-full bg-zinc-800 border rounded-xl px-4 py-3 text-zinc-200 text-sm placeholder-zinc-600 outline-none resize-none transition-colors duration-150 ${
-                    isGibberishError
-                      ? "border-red-500/60 focus:border-red-500"
-                      : "border-zinc-700 focus:border-orange-500"
-                  }`}
-                />
-                <p className="text-zinc-600 text-xs mt-1">⌘ + Enter to save your idea</p>
-              </div>
+          {/* Generating — skeleton + cycling text */}
+          {state === "generating" && (
+            <GeneratingSkeleton message={loadingMessage} />
+          )}
 
-              {/* Gibberish error */}
-              {isGibberishError && (
-                <div className="flex items-start gap-3 p-3.5 rounded-xl bg-red-500/10 border border-red-500/20">
-                  <span className="text-base leading-none flex-shrink-0 mt-0.5">⚠️</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-red-400 text-sm font-semibold">Invalid text</p>
-                    <p className="text-zinc-500 text-xs mt-0.5">
-                      That doesn't look like a real idea. Write something meaningful, or let AI generate ideas for you.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={handleGenerate}
-                      disabled={state.generating}
-                      className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-orange-400 hover:text-orange-300 transition-colors"
-                    >
-                      {state.generating ? <Spinner /> : "✨"}
-                      {state.generating ? "Generating…" : "Generate ideas instead →"}
-                    </button>
-                  </div>
+          {/* Error */}
+          {state === "error" && (
+            <div className="p-5 space-y-4">
+              <div className="flex items-start gap-3 p-3.5 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20">
+                <span className="text-base flex-shrink-0">⚠️</span>
+                <div>
+                  <p className="text-red-600 dark:text-red-400 text-sm font-semibold">
+                    Something went wrong
+                  </p>
+                  <p className="text-slate-500 dark:text-zinc-500 text-xs mt-0.5">{error}</p>
                 </div>
-              )}
-
-              {/* Normal API error */}
-              {state.error && !isGibberishError && (
-                <p className="text-red-400 text-sm bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2">
-                  {state.error}
-                </p>
-              )}
-
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={submitUserIdea}
-                  disabled={!state.inputText.trim() || state.saving || state.generating}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-800 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {state.saving ? (
-                    <>
-                      <Spinner /> Saving…
-                    </>
-                  ) : (
-                    "Save idea →"
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleGenerate}
-                  disabled={state.generating || state.saving}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 active:scale-95 text-white text-sm font-semibold transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-orange-500/25 ml-auto"
-                >
-                  {state.generating ? (
-                    <>
-                      <Spinner /> Generating…
-                    </>
-                  ) : (
-                    <>✨ Generate Ideas</>
-                  )}
-                </button>
-              </div>
-            </>
-          )}
-
-          {/* ── View: generated ─────────────────────────────────────────── */}
-          {state.view === "generated" && (
-            <>
-              <p className="text-zinc-500 text-xs">
-                3 ideas tailored to your niche — click one to use it, ★ to favourite it.
-              </p>
-              <div className="space-y-3">
-                {state.generatedIdeas.map((idea) => (
-                  <IdeaCard
-                    key={idea.id}
-                    idea={idea}
-                    onSelect={handleSelectIdea}
-                    onToggleFavourite={handleToggleFavourite}
-                  />
-                ))}
-              </div>
-              {state.error && (
-                <p className="text-red-400 text-sm bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2">
-                  {state.error}
-                </p>
-              )}
-            </>
-          )}
-
-          {/* ── View: confirming ────────────────────────────────────────── */}
-          {state.view === "confirming" && state.selectedIdea && (
-            <>
-              <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-4">
-                <p className="text-zinc-200 text-sm leading-relaxed">{state.selectedIdea.idea}</p>
-                {state.selectedIdea.why_it_works && (
-                  <div className="flex items-start gap-1.5 mt-2">
-                    <span className="text-orange-400 text-[10px] mt-0.5 flex-shrink-0">💡</span>
-                    <p className="text-zinc-500 text-xs italic leading-relaxed">
-                      {state.selectedIdea.why_it_works}
-                    </p>
-                  </div>
-                )}
-                <div className="flex items-center gap-2 mt-3">
-                  <span
-                    className={`inline-block text-xs px-2 py-0.5 rounded-full border ${
-                      state.selectedIdea.source === "postra"
-                        ? "text-orange-400 bg-orange-500/10 border-orange-500/20"
-                        : "text-zinc-400 bg-zinc-700 border-zinc-600"
-                    }`}
-                  >
-                    {state.selectedIdea.source === "postra" ? "AI generated" : "Your idea"}
-                  </span>
-                  {state.selectedIdea.win_score != null && state.selectedIdea.win_score > 0 && (
-                    <WinScoreBadge score={state.selectedIdea.win_score} />
-                  )}
-                </div>
-              </div>
-
-              <p className="text-zinc-500 text-sm">
-                This will create a new post workflow from this idea. Ready to start?
-              </p>
-
-              {state.error && (
-                <p className="text-red-400 text-sm bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2">
-                  {state.error}
-                </p>
-              )}
-
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={handleBackFromConfirm}
-                  className="px-4 py-2.5 rounded-xl bg-zinc-800 border border-zinc-700 hover:border-zinc-500 text-zinc-300 text-sm font-medium transition-all duration-150"
-                >
-                  ← Back
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConfirm}
-                  disabled={state.confirming}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 active:scale-95 text-white text-sm font-semibold transition-all duration-150 disabled:opacity-50 shadow-lg shadow-orange-500/25 ml-auto"
-                >
-                  {state.confirming ? (
-                    <>
-                      <Spinner /> Creating…
-                    </>
-                  ) : (
-                    "Confirm & Start →"
-                  )}
-                </button>
-              </div>
-            </>
-          )}
-
-          {/* ── View: done ──────────────────────────────────────────────── */}
-          {state.view === "done" && state.createdChat && (
-            <div className="text-center py-4 space-y-4">
-              <div className="w-14 h-14 mx-auto rounded-full bg-orange-500/10 border border-orange-500/20 flex items-center justify-center">
-                <span className="text-2xl">🚀</span>
-              </div>
-              <div>
-                <h3 className="text-white font-semibold">Post workflow created!</h3>
-                <p className="text-zinc-400 text-sm mt-1 max-w-xs mx-auto">
-                  "{state.createdChat.title}"
-                </p>
               </div>
               <button
                 type="button"
-                onClick={handleGoToChat}
-                className="px-6 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-sm font-semibold transition-all duration-150 shadow-lg shadow-orange-500/25"
+                onClick={handleGenerate}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-sm font-semibold transition-all"
               >
-                Start creating →
+                ↺ Try Again
               </button>
             </div>
           )}
+
+          {/* Done — show ideas */}
+          {state === "done" && result && (
+            <div className="p-5 space-y-3">
+              {/* Recommended */}
+              <div>
+                <p className="text-[11px] font-semibold text-orange-500 uppercase tracking-wide mb-2">
+                  Recommended
+                </p>
+                <RecommendedCard
+                  idea={result.recommended}
+                  onUse={handleUse}
+                  starting={isStarting && startingId === result.recommended.id}
+                />
+              </div>
+
+              {/* Alternatives */}
+              <div>
+                <p className="text-[11px] font-medium text-slate-400 dark:text-zinc-500 uppercase tracking-wide mb-2">
+                  Or try these
+                </p>
+                <div className="space-y-2">
+                  {result.alternatives.map((alt) => (
+                    <AlternativeCard
+                      key={alt.id}
+                      idea={alt}
+                      onUse={handleUse}
+                      starting={isStarting && startingId === alt.id}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* ── Footer ── */}
+        {(state === "done" || state === "error") && (
+          <div className="px-5 pb-5 pt-3 border-t border-slate-100 dark:border-zinc-800 flex items-center justify-between flex-shrink-0">
+            {state === "done" && (
+              <button
+                type="button"
+                onClick={handleGenerate}
+                disabled={state !== "done"}
+                className="text-xs text-slate-400 dark:text-zinc-500 hover:text-slate-600 dark:hover:text-zinc-300 transition-colors flex items-center gap-1"
+              >
+                ↺ Regenerate
+              </button>
+            )}
+            {state === "error" && <span />}
+            <button
+              type="button"
+              onClick={handleGoToIdeas}
+              className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 font-medium transition-colors"
+            >
+              See all ideas →
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -5,7 +5,7 @@ import random
 import re
 from typing import Optional
 from app.core.settings import settings
-from app.services.llm_service import generate_content
+from app.services.llm_service import generate_content, generate_content_gemini_first
 from app.services.fallback_ideas import get_fallback_ideas
 
 from app.integrations.queries import (
@@ -506,12 +506,30 @@ def _insert_idea_with_metadata(
     source: str,
 ) -> dict:
     """
-    Insert a single idea row with metadata columns.
-    Falls back gracefully if why_it_works / win_score columns don't exist yet.
+    Insert a single idea row — skips insert if this exact idea text
+    already exists for this user (deduplication by text content).
     """
+    cleaned = idea_text.strip()
+
+    # ── Dedup check: return existing row if text already saved ────────────────
+    try:
+        existing = (
+            supabase.table("ideas")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("idea", cleaned)
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            return existing.data[0]
+    except Exception:
+        pass  # If check fails, proceed to insert normally
+
+    # ── Insert new row ────────────────────────────────────────────────────────
     row = {
         "user_id":      user_id,
-        "idea":         idea_text.strip(),
+        "idea":         cleaned,
         "source":       source,
         "is_favourite": False,
         "why_it_works": why_it_works,
@@ -528,7 +546,7 @@ def _insert_idea_with_metadata(
         if "why_it_works" in err_str or "win_score" in err_str or "column" in err_str:
             minimal_row = {
                 "user_id":      user_id,
-                "idea":         idea_text.strip(),
+                "idea":         cleaned,
                 "source":       source,
                 "is_favourite": False,
             }
@@ -600,7 +618,7 @@ async def handle_improve_idea(idea_text: str, niche: str, language: str) -> dict
             f"}}"
         )
 
-    raw = generate_content(prompt)
+    raw = generate_content_gemini_first(prompt)
 
     # Parse response
     text = raw.strip()

@@ -1,7 +1,4 @@
 # backend/app/services/fallback_ideas.py
-# Evergreen fallback ideas per niche.
-# Used when Gemini is unavailable across all retry rounds.
-# Each idea includes: idea, why_it_works, win_score
 
 FALLBACK_IDEAS: dict[str, list[dict]] = {
     "Fitness": [

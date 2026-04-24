@@ -390,7 +390,7 @@ function RecommendedIdeaCard({
   };
 
   return (
-    <div className="relative bg-gradient-to-br from-orange-50 to-amber-50/50 dark:from-orange-500/8 dark:to-zinc-900 border border-orange-200 dark:border-orange-500/25 rounded-2xl p-5 hover:border-orange-300 dark:hover:border-orange-500/50 transition-all duration-200 group">
+    <div className="relative bg-gradient-to-br from-orange-50 to-amber-50/50 dark:bg-none dark:bg-zinc-800/80 border border-orange-200 dark:border-orange-500/30 rounded-2xl p-5 hover:border-orange-300 dark:hover:border-orange-500/50 transition-all duration-200 group">
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[10px] font-bold text-orange-600 dark:text-orange-400 bg-orange-100 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 px-2 py-0.5 rounded-full uppercase tracking-wide">
@@ -411,12 +411,12 @@ function RecommendedIdeaCard({
         </button>
       </div>
 
-      <p className="text-slate-800 dark:text-zinc-100 text-sm font-medium leading-relaxed mb-3">{idea.idea}</p>
+      <p className="text-slate-800 dark:text-white text-sm font-medium leading-relaxed mb-3">{idea.idea}</p>
 
       {idea.why_it_works && (
         <div className="flex items-start gap-1.5 mb-4">
           <span className="text-orange-500 text-[10px] mt-0.5 flex-shrink-0">💡</span>
-          <p className="text-slate-500 dark:text-zinc-400 text-xs italic leading-relaxed">{idea.why_it_works}</p>
+          <p className="text-slate-500 dark:text-zinc-200 text-xs italic leading-relaxed">{idea.why_it_works}</p>
         </div>
       )}
 
@@ -690,9 +690,9 @@ export default function IdeasPage() {
 
   // Improve idea modal
   const [improveTarget, setImproveTarget] = useState<Idea | null>(null);
-
+  const generateAbortRef = useRef<AbortController | null>(null);
+  const generateRequestId = useRef(0);
   const loadingMessage = useLoadingMessage(generating, LOADING_MESSAGES);
-
   const fetchIdeas = useCallback(async () => {
     try {
       const data = await listIdeas();
@@ -708,24 +708,29 @@ export default function IdeasPage() {
 
   // ── Generate structured ideas ─────────────────────────────────────────────
 
-  const handleGenerate = async () => {
-    setGenerating(true);
-    setGenerateError(null);
-    try {
-      const result = await generateIdeas();
-      setGeneratedResult(result);
-      // Prepend new ideas to the stored list
-      setIdeas((prev) => {
-        const newIds = new Set([result.recommended.id, ...result.alternatives.map((a) => a.id)]);
-        const filtered = prev.filter((i) => !newIds.has(i.id));
-        return [result.recommended, ...result.alternatives, ...filtered];
-      });
-    } catch (e: unknown) {
-      setGenerateError((e as Error).message);
-    } finally {
-      setGenerating(false);
-    }
-  };
+const handleGenerate = async () => {
+  // Cancel any in-flight request before firing a new one
+  generateAbortRef.current?.abort();
+  const controller = new AbortController();
+  generateAbortRef.current = controller;
+
+  setGenerating(true);
+  setGenerateError(null);
+  try {
+    const result = await generateIdeas(controller.signal);
+    setGeneratedResult(result);
+    setIdeas((prev) => {
+      const newIds = new Set([result.recommended.id, ...result.alternatives.map((a) => a.id)]);
+      const filtered = prev.filter((i) => !newIds.has(i.id));
+      return [result.recommended, ...result.alternatives, ...filtered];
+    });
+  } catch (e: unknown) {
+    if ((e as Error).name === "AbortError") return; // cancelled — ignore silently
+    setGenerateError((e as Error).message);
+  } finally {
+    setGenerating(false);
+  }
+};
 
   // ── Save user idea ────────────────────────────────────────────────────────
 

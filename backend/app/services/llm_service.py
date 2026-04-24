@@ -1,162 +1,246 @@
 # backend/app/services/llm_service.py
-# Gemini API wrapper with 3-round retry logic.
-# Falls back to Groq (llama) if all Gemini rounds fail.
-# Each round shuffles all available keys independently.
-# Cooldown between rounds keeps retries efficient without hammering the API.
+#
+# Generation priority:
+#   1. Groq  (attempt 1)
+#   2. Groq  (attempt 2 — one retry, short delay)
+#   3. Gemini (single attempt across all keys, no retry round)
+#   4. Caller catches RuntimeError and uses fallback_ideas
+#
+# This ordering gives the fastest p50 (Groq is ~2–4 s) while keeping
+# Gemini as a reliable safety net.  fallback_ideas is only reached when
+# both APIs are genuinely down.
 
 import random
 import time
 import requests
-from app.core.config import GEMINI_API_KEYS
-from app.core.settings import settings
+from app.core.config import GEMINI_API_KEYS, GROQ_API_KEYS
 
+# ── Gemini ────────────────────────────────────────────────────────────────────
 GEMINI_API_URL = (
-    "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent"
+    "https://generativelanguage.googleapis.com/v1/models/"
+    "gemini-2.5-flash:generateContent"
 )
+GEMINI_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+GEMINI_TIMEOUT = 15.0          # seconds — slightly more generous as a fallback
+PER_KEY_DELAY  = (0.2, 0.5)   # random sleep between key attempts
 
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "llama-3.3-70b-versatile"
-
-RETRYABLE_STATUS = {429, 500, 502, 503, 504}
-
-# Retry configuration
-MAX_ROUNDS = 3
-ROUND_COOLDOWN_BASE = 0.8   # seconds between rounds (increases per round)
-PER_KEY_DELAY = (0.3, 0.8)  # (min, max) random delay between key attempts
+# ── Groq ──────────────────────────────────────────────────────────────────────
+GROQ_API_URL   = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL     = "llama-3.3-70b-versatile"
+GROQ_TIMEOUT   = 12.0          # seconds — Groq is fast, fail quickly
+GROQ_RETRY_DELAY = 0.5         # seconds between attempt 1 and attempt 2
 
 
-def _call_groq(prompt: str, timeout: float = 15.0) -> str:
+# ══════════════════════════════════════════════════════════════════════════════
+# Internal helpers
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _call_groq_once(prompt: str, key: str, max_tokens: int = 1024) -> str:
     """
-    Call Groq API as a fallback when Gemini is unavailable.
-    Raises RuntimeError if Groq also fails.
+    Single Groq attempt with a given key.
+    Raises RuntimeError on any failure (network, HTTP error, empty body).
     """
-    api_key = getattr(settings, "groq_api_key", None)
-    if not api_key:
-        raise RuntimeError("Groq API key not configured")
-
-    payload = {
-        "model": GROQ_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.8,
-        "max_tokens": 1024,
-    }
-
     try:
         response = requests.post(
             GROQ_API_URL,
-            json=payload,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
+            json={
+                "model":       GROQ_MODEL,
+                "messages":    [{"role": "user", "content": prompt}],
+                "temperature": 0.9,
+                "max_tokens":  max_tokens,
             },
-            timeout=timeout,
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type":  "application/json",
+            },
+            timeout=GROQ_TIMEOUT,
         )
-        print(f"[Groq] status={response.status_code}")
-        if response.status_code == 200:
-            data = response.json()
-            text = data["choices"][0]["message"]["content"].strip()
-            if text:
-                return text
-            raise RuntimeError("Groq returned empty response")
-        raise RuntimeError(f"Groq HTTP {response.status_code}: {response.text[:200]}")
-    except requests.exceptions.RequestException as e:
-        raise RuntimeError(f"Groq network error: {type(e).__name__}: {e}")
+    except requests.exceptions.Timeout:
+        raise RuntimeError(f"Groq timeout after {GROQ_TIMEOUT}s")
+    except requests.exceptions.RequestException as exc:
+        raise RuntimeError(f"Groq network error: {type(exc).__name__}: {exc}")
+
+    print(f"[Groq] status={response.status_code} model={GROQ_MODEL}")
+
+    if response.status_code != 200:
+        raise RuntimeError(
+            f"Groq HTTP {response.status_code}: {response.text[:300]}"
+        )
+
+    try:
+        text = response.json()["choices"][0]["message"]["content"].strip()
+    except (KeyError, IndexError) as exc:
+        raise RuntimeError(f"Groq response parse error: {exc}")
+
+    if not text:
+        raise RuntimeError("Groq returned empty response")
+
+    return text
 
 
-def generate_content(prompt: str, timeout: float = 12.0) -> str:
+def _call_groq_with_retry(prompt: str, max_tokens: int = 1024) -> str:
     """
-    Try to generate content using Gemini with 3 full retry rounds.
-    Falls back to Groq if all Gemini rounds fail.
+    Try Groq up to 2 times (attempt 1, short delay, attempt 2).
+    Randomly picks a key each attempt (different key on retry if pool > 1).
+    Raises RuntimeError if both attempts fail.
+    """
+    keys = [k for k in GROQ_API_KEYS if k]
+    if not keys:
+        raise RuntimeError("No Groq API keys configured")
 
-    Round structure (Gemini):
-      - Round 1: try all keys in random order, short delays
-      - Round 2: wait ROUND_COOLDOWN_BASE seconds, try all keys again
-      - Round 3: wait ROUND_COOLDOWN_BASE * 2 seconds, final attempt
+    errors: list[str] = []
 
-    Raises RuntimeError if both Gemini and Groq fail.
+    for attempt in range(1, 3):          # attempt 1 and 2
+        key = random.choice(keys)
+        try:
+            result = _call_groq_once(prompt, key, max_tokens)
+            if attempt > 1:
+                print(f"[Groq] succeeded on attempt {attempt}")
+            return result
+        except RuntimeError as exc:
+            errors.append(f"attempt {attempt}: {exc}")
+            print(f"[Groq] attempt {attempt} failed — {exc}")
+            if attempt < 2:
+                time.sleep(GROQ_RETRY_DELAY)
+
+    raise RuntimeError(
+        f"Groq failed after 2 attempts: {' | '.join(errors)}"
+    )
+
+
+def _call_gemini_once(prompt: str, max_tokens: int = 1024) -> str:
+    """
+    Try every Gemini key in random order — one pass, no retry rounds.
+    Raises RuntimeError if all keys fail.
     """
     keys = [k for k in GEMINI_API_KEYS if k]
     if not keys:
-        print("[LLM] No Gemini keys configured — trying Groq directly")
-        return _call_groq(prompt, timeout=15.0)
+        raise RuntimeError("No Gemini API keys configured")
 
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
-            "temperature": 0.9,
-            "maxOutputTokens": 1024,
+            "temperature":     0.9,
+            "maxOutputTokens": max_tokens,
         },
     }
 
-    all_errors: list[str] = []
+    shuffled = keys[:]
+    random.shuffle(shuffled)
+    errors: list[str] = []
 
-    for round_num in range(1, MAX_ROUNDS + 1):
-        # Cooldown before rounds 2 and 3
-        if round_num > 1:
-            cooldown = ROUND_COOLDOWN_BASE * (round_num - 1)
-            time.sleep(cooldown)
+    for idx, key in enumerate(shuffled, start=1):
+        try:
+            response = requests.post(
+                f"{GEMINI_API_URL}?key={key}",
+                json=payload,
+                timeout=GEMINI_TIMEOUT,
+            )
+            print(f"[Gemini] key={idx}/{len(shuffled)} status={response.status_code}")
 
-        # Shuffle keys independently each round
-        shuffled_keys = keys[:]
-        random.shuffle(shuffled_keys)
-
-        round_errors: list[str] = []
-
-        for attempt, key in enumerate(shuffled_keys, start=1):
-            try:
-                response = requests.post(
-                    f"{GEMINI_API_URL}?key={key}",
-                    json=payload,
-                    timeout=timeout,
+            if response.status_code == 200:
+                data  = response.json()
+                parts = (
+                    data.get("candidates", [{}])[0]
+                    .get("content", {})
+                    .get("parts", [])
                 )
-
-                print(f"[Gemini] round={round_num} key={attempt}/{len(shuffled_keys)} status={response.status_code}")
-
-                if response.status_code == 200:
-                    data = response.json()
-                    parts = (
-                        data.get("candidates", [{}])[0]
-                        .get("content", {})
-                        .get("parts", [])
-                    )
-                    text = "".join(p.get("text", "") for p in parts).strip()
-                    if text:
-                        return text
-                    # Empty response — treat as retryable
-                    round_errors.append(f"r{round_num}k{attempt}: empty response")
-                    continue
-
-                if response.status_code in RETRYABLE_STATUS:
-                    round_errors.append(f"r{round_num}k{attempt}: HTTP {response.status_code}")
-                    # Small delay between key attempts
-                    time.sleep(random.uniform(*PER_KEY_DELAY))
-                    continue
-
-                # Non-retryable status — log but continue to next key anyway
-                round_errors.append(f"r{round_num}k{attempt}: HTTP {response.status_code} non-retryable")
+                text = "".join(p.get("text", "") for p in parts).strip()
+                if text:
+                    return text
+                errors.append(f"key{idx}: empty response")
                 continue
 
-            except requests.exceptions.Timeout:
-                round_errors.append(f"r{round_num}k{attempt}: timeout after {timeout}s")
+            if response.status_code in GEMINI_RETRYABLE_STATUS:
+                errors.append(f"key{idx}: HTTP {response.status_code}")
                 time.sleep(random.uniform(*PER_KEY_DELAY))
                 continue
 
-            except requests.exceptions.RequestException as e:
-                round_errors.append(f"r{round_num}k{attempt}: network error: {type(e).__name__}")
-                time.sleep(random.uniform(*PER_KEY_DELAY))
-                continue
+            # Non-retryable (e.g. 400 bad request) — still try next key
+            errors.append(f"key{idx}: HTTP {response.status_code} non-retryable")
+            continue
 
-        all_errors.extend(round_errors)
-        print(f"[Gemini] round={round_num} failed — {len(round_errors)} errors")
+        except requests.exceptions.Timeout:
+            errors.append(f"key{idx}: timeout after {GEMINI_TIMEOUT}s")
+            time.sleep(random.uniform(*PER_KEY_DELAY))
+            continue
+        except requests.exceptions.RequestException as exc:
+            errors.append(f"key{idx}: network error: {type(exc).__name__}")
+            time.sleep(random.uniform(*PER_KEY_DELAY))
+            continue
 
-    # All Gemini rounds failed — try Groq as fallback
-    print(f"[LLM] All {MAX_ROUNDS} Gemini rounds failed. Trying Groq fallback...")
+    raise RuntimeError(
+        f"Gemini failed across all {len(shuffled)} keys: {' | '.join(errors)}"
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Public API  (used by ideas_service and other callers)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def generate_content(prompt: str) -> str:
+    """
+    Idea generation entry-point.  Groq first (fast), Gemini as fallback.
+
+    Priority:
+      1. Groq  (attempt 1)
+      2. Groq  (attempt 2, 0.5 s later)
+      3. Gemini (single pass through all keys)
+
+    Raises RuntimeError if all stages fail — caller falls back to
+    fallback_ideas (handled in handle_generate_ideas).
+    """
+    groq_error_msg = ""
     try:
-        result = _call_groq(prompt, timeout=15.0)
-        print("[LLM] Groq fallback succeeded")
+        result = _call_groq_with_retry(prompt)
+        print("[LLM] Groq succeeded ✓")
+        return result
+    except RuntimeError as groq_err:
+        groq_error_msg = str(groq_err)
+        print(f"[LLM] Groq exhausted → falling back to Gemini. ({groq_error_msg})")
+
+    try:
+        result = _call_gemini_once(prompt)
+        print("[LLM] Gemini fallback succeeded ✓")
+        return result
+    except RuntimeError as gemini_err:
+        raise RuntimeError(
+            f"All LLM providers failed. "
+            f"Groq: {groq_error_msg} | Gemini: {gemini_err}"
+        )
+
+
+def generate_content_gemini_first(prompt: str) -> str:
+    """
+    Improve-idea entry-point.  Gemini first (higher quality), Groq as fallback.
+    Uses 2048 max tokens — improve prompts produce longer JSON than generation.
+
+    Priority:
+      1. Gemini (single pass through all keys)
+      2. Groq   (attempt 1)
+      3. Groq   (attempt 2, 0.5 s later)
+
+    Raises RuntimeError if both fail — caller should show a user-facing
+    error message (no silent fallback for improve).
+    """
+    # Improve responses are longer than generation — bump token limit to avoid truncation
+    MAX_TOKENS = 2048
+
+    gemini_error_msg = ""
+    try:
+        result = _call_gemini_once(prompt, max_tokens=MAX_TOKENS)
+        print("[LLM] Gemini succeeded ✓")
+        return result
+    except RuntimeError as gemini_err:
+        gemini_error_msg = str(gemini_err)
+        print(f"[LLM] Gemini failed → falling back to Groq. ({gemini_error_msg})")
+
+    try:
+        result = _call_groq_with_retry(prompt, max_tokens=MAX_TOKENS)
+        print("[LLM] Groq fallback succeeded ✓")
         return result
     except RuntimeError as groq_err:
         raise RuntimeError(
-            f"All {MAX_ROUNDS} Gemini rounds failed AND Groq fallback failed. "
-            f"Gemini errors: {' | '.join(all_errors[-6:])} | Groq: {groq_err}"
+            f"All LLM providers failed. "
+            f"Gemini: {gemini_error_msg} | Groq: {groq_err}"
         )
