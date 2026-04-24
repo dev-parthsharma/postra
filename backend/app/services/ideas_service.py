@@ -42,15 +42,11 @@ class IdeaLimitReached(Exception):
 
 
 # ── In-memory dedup cache ─────────────────────────────────────────────────────
-# Keyed by user_id → set of idea text snippets seen this session.
-# This is intentionally lightweight — it lives only in app memory.
-# It prevents showing the same idea twice within a session without schema changes.
 
 _seen_ideas_cache: dict[str, set[str]] = {}
 
 
 def _cache_key(idea_text: str) -> str:
-    """Normalise idea text to a dedup key (lowercase, stripped, first 80 chars)."""
     return idea_text.lower().strip()[:80]
 
 
@@ -62,16 +58,13 @@ def _mark_ideas_seen(user_id: str, ideas: list[str]) -> None:
     seen = _get_seen_ideas(user_id)
     for idea in ideas:
         seen.add(_cache_key(idea))
-    # Cap cache size to avoid memory leak for long-running servers
     if len(seen) > 200:
-        # Drop oldest half — sets don't have order, so just trim arbitrarily
         overflow = list(seen)[:100]
         for k in overflow:
             seen.discard(k)
 
 
 def _filter_seen(user_id: str, ideas: list[dict]) -> list[dict]:
-    """Remove ideas that were already seen this session. Best-effort, non-blocking."""
     seen = _get_seen_ideas(user_id)
     return [i for i in ideas if _cache_key(i.get("idea", "")) not in seen]
 
@@ -182,14 +175,10 @@ async def validate_idea_text(text: str) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STRUCTURED IDEA GENERATION  (recommended + alternatives)
+# STRUCTURED IDEA GENERATION
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _fetch_trends_for_niche(supabase, niche: str) -> list[str]:
-    """
-    Fetch up to 3 active trends matching the user's niche.
-    Returns empty list on any error — never blocks generation.
-    """
     try:
         from datetime import datetime, timezone
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -289,17 +278,10 @@ Output format (strict JSON):
 
 
 def _parse_structured_ideas(raw: str) -> dict:
-    """
-    Parse and validate the structured ideas JSON from Gemini.
-    Raises ValueError on malformed response.
-    """
-    # Strip markdown fences if present
     text = raw.strip()
     if text.startswith("```"):
         lines = text.split("\n")
-        # Remove opening fence
         lines = lines[1:] if lines[0].startswith("```") else lines
-        # Remove closing fence
         if lines and lines[-1].strip() == "```":
             lines = lines[:-1]
         text = "\n".join(lines).strip()
@@ -307,7 +289,6 @@ def _parse_structured_ideas(raw: str) -> dict:
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError:
-        # Try to extract JSON object from the text
         match = re.search(r'\{.*\}', text, re.DOTALL)
         if match:
             try:
@@ -343,46 +324,26 @@ def generate_structured_ideas(
     trends: list[str],
     exclude_ideas: list[str],
 ) -> dict:
-    """
-    Generate structured ideas via Gemini (with Groq fallback).
-    Returns: { recommended: {...}, alternatives: [{...}, {...}] }
-    Raises ValueError on malformed AI response.
-    Raises RuntimeError (from llm_service) if all rounds fail.
-    """
     prompt = _build_generation_prompt(niche, tone, style, language, trends, exclude_ideas)
     raw = generate_content(prompt)
     return _parse_structured_ideas(raw)
 
 
 def _build_fallback_result(niche: str, user_id: str) -> dict:
-    """
-    Build a structured ideas result from the fallback ideas bank.
-    Filters out recently seen ideas, then picks the best 3.
-    Returns: { recommended: {...}, alternatives: [{...}, {...}] }
-    """
     all_ideas = get_fallback_ideas(niche)
-
-    # Filter seen ideas (best effort)
     unseen = _filter_seen(user_id, all_ideas)
     pool = unseen if len(unseen) >= 3 else all_ideas
-
-    # Pick top scorer as recommended, then 2 random alternatives from the rest
     pool_sorted = sorted(pool, key=lambda x: x["win_score"], reverse=True)
     recommended = pool_sorted[0]
-
-    # Pick 2 alternatives that differ from recommended
     alternatives_pool = [i for i in pool if i["idea"] != recommended["idea"]]
     random.shuffle(alternatives_pool)
     alternatives = alternatives_pool[:2]
-
-    # Ensure we always have 2 alternatives
     while len(alternatives) < 2:
         alternatives.append({
             "idea": "Create a day-in-your-life reel showing your real daily routine",
             "why_it_works": "Authentic daily content builds strong personal connection with audiences who crave transparency",
             "win_score": 7,
         })
-
     return {
         "recommended": recommended,
         "alternatives": alternatives[:2],
@@ -393,20 +354,10 @@ def _build_fallback_result(niche: str, user_id: str) -> dict:
 # ── Idea orchestration ────────────────────────────────────────────────────────
 
 async def handle_generate_ideas(supabase, user_id: str) -> dict:
-    """
-    Returns structured ideas:
-    {
-      "recommended": { idea, why_it_works, win_score, ...db_fields },
-      "alternatives": [ {...}, {...} ]
-    }
-    Also persists all 3 ideas to the DB with metadata.
-    Raises IdeaLimitReached if the user has hit their daily quota.
-    """
     profile = get_user_profile(supabase, user_id)
     if not profile:
         raise ValueError("User profile not found. Complete onboarding first.")
 
-    # ── Daily reset + limit check ─────────────────────────────────────────────
     from datetime import date
     today = date.today().isoformat()
     usage = reset_daily_usage_if_needed(supabase, user_id, today)
@@ -421,14 +372,10 @@ async def handle_generate_ideas(supabase, user_id: str) -> dict:
     niche    = profile.get("niche", "Lifestyle")
     language = profile.get("language", "english")
 
-    # ── Fetch trends (soft — never errors) ───────────────────────────────────
     trends = _fetch_trends_for_niche(supabase, niche)
-
-    # ── Build exclude list from session cache ─────────────────────────────────
     seen = _get_seen_ideas(user_id)
-    exclude_list = list(seen)[:15]  # cap to keep prompt reasonable
+    exclude_list = list(seen)[:15]
 
-    # ── Attempt AI generation, fall back gracefully ───────────────────────────
     is_fallback = False
     try:
         structured = generate_structured_ideas(
@@ -444,7 +391,6 @@ async def handle_generate_ideas(supabase, user_id: str) -> dict:
         structured = _build_fallback_result(niche, user_id)
         is_fallback = True
 
-    # ── Persist to DB ─────────────────────────────────────────────────────────
     rec  = structured["recommended"]
     alt1, alt2 = structured["alternatives"]
 
@@ -455,7 +401,6 @@ async def handle_generate_ideas(supabase, user_id: str) -> dict:
         win_score=rec["win_score"],
         source="postra",
     )
-
     saved_alt1 = _insert_idea_with_metadata(
         supabase, user_id,
         idea_text=alt1["idea"],
@@ -463,7 +408,6 @@ async def handle_generate_ideas(supabase, user_id: str) -> dict:
         win_score=alt1["win_score"],
         source="postra",
     )
-
     saved_alt2 = _insert_idea_with_metadata(
         supabase, user_id,
         idea_text=alt2["idea"],
@@ -472,10 +416,8 @@ async def handle_generate_ideas(supabase, user_id: str) -> dict:
         source="postra",
     )
 
-    # ── Mark ideas as seen in session cache ───────────────────────────────────
     _mark_ideas_seen(user_id, [rec["idea"], alt1["idea"], alt2["idea"]])
 
-    # ── Increment daily counter ───────────────────────────────────────────────
     if daily_limit is not None:
         increment_ideas_used_today(supabase, user_id)
 
@@ -505,13 +447,8 @@ def _insert_idea_with_metadata(
     win_score: int,
     source: str,
 ) -> dict:
-    """
-    Insert a single idea row — skips insert if this exact idea text
-    already exists for this user (deduplication by text content).
-    """
     cleaned = idea_text.strip()
 
-    # ── Dedup check: return existing row if text already saved ────────────────
     try:
         existing = (
             supabase.table("ideas")
@@ -524,9 +461,8 @@ def _insert_idea_with_metadata(
         if existing.data:
             return existing.data[0]
     except Exception:
-        pass  # If check fails, proceed to insert normally
+        pass
 
-    # ── Insert new row ────────────────────────────────────────────────────────
     row = {
         "user_id":      user_id,
         "idea":         cleaned,
@@ -561,10 +497,6 @@ def _insert_idea_with_metadata(
 
 
 async def handle_save_user_idea(supabase, user_id: str, idea_text: str) -> dict:
-    """
-    Validate FIRST, then save.
-    Raises IdeaInvalid or IdeaConfused before touching the DB.
-    """
     idea_text = idea_text.strip()
     if not idea_text:
         raise IdeaInvalid("Idea text cannot be empty")
@@ -578,11 +510,6 @@ async def handle_save_user_idea(supabase, user_id: str, idea_text: str) -> dict:
 
 
 async def handle_improve_idea(idea_text: str, niche: str, language: str) -> dict:
-    """
-    Improve an existing idea using AI.
-    Returns: { improved_idea: str, why_it_works: str, win_score: int }
-    Raises RuntimeError if AI is completely unavailable.
-    """
     if language == "hinglish":
         prompt = (
             f"Tu ek expert Instagram content strategist hai.\n\n"
@@ -620,7 +547,6 @@ async def handle_improve_idea(idea_text: str, niche: str, language: str) -> dict
 
     raw = generate_content_gemini_first(prompt)
 
-    # Parse response
     text = raw.strip()
     if text.startswith("```"):
         lines = text.split("\n")
@@ -680,42 +606,93 @@ def _derive_stage(messages: list[dict]) -> str:
     return "chatting"
 
 
-# ── Smart opening message generator ──────────────────────────────────────────
+# ── Chat open helpers ─────────────────────────────────────────────────────────
 
-async def _generate_opening_message(idea_title: str, language: str = "english") -> str:
+def _get_idea_for_chat(supabase, idea_id: str) -> Optional[dict]:
+    """Fetch the idea row linked to this chat. Returns None on any error."""
+    try:
+        resp = (
+            supabase.table("ideas")
+            .select("id, win_score")
+            .eq("id", idea_id)
+            .single()
+            .execute()
+        )
+        return resp.data or None
+    except Exception:
+        return None
+
+
+def _save_win_score(supabase, idea_id: str, win_score: int) -> None:
+    """Persist a newly inferred win_score to the ideas row. Best-effort, non-blocking."""
+    try:
+        supabase.table("ideas").update({"win_score": win_score}).eq("id", idea_id).execute()
+    except Exception:
+        pass  # non-critical — next open will retry
+
+
+async def _generate_opening_with_score(
+    idea_title: str,
+    language: str,
+    niche: str,
+    tone: str,
+    goal: str,
+    style: str,
+) -> tuple[str, Optional[int]]:
+    """
+    Calls Groq once to produce an opening message AND infer a win_score.
+    Returns (message_text, win_score_or_None).
+    Falls back to a plain generic message if Groq fails — never raises.
+    """
     if language == "hinglish":
         prompt = (
-            f"Tu Postra hai — sharp aur honest Instagram content assistant jo Hinglish mein baat karta hai.\n\n"
-            f"Creator ka idea hai: \"{idea_title}\"\n\n"
-            f"Ye idea already validated hai — valid aur clear hai.\n\n"
-            f"Short, genuine opening message likho (2-3 sentences):\n"
-            f"- Idea ko actually read karke react karo — honest reaction, over-the-top hype nahi\n"
-            f"- Creator ko feel ho ki Postra ne genuinely samjha\n"
-            f"- Hooks/caption ke liye offer karo\n"
-            f"- Casual Hinglish, 1-2 emojis max\n\n"
-            f"Examples:\n"
-            f"- \"Ye concept kaafi solid lagta hai 🔥 — seedha hooks pe chalein?\"\n"
-            f"- \"Decent idea hai bhai — postable definitely hai. Hooks se start karein?\"\n\n"
-            f"Return ONLY the message."
+            f"Tu Postra hai — sharp Instagram content assistant.\n"
+            f"Creator ka idea: \"{idea_title}\"\n"
+            f"Niche: {niche} | Tone: {tone} | Goal: {goal}\n\n"
+            f"Do kaam karo:\n"
+            f"1. Is idea ko 1-10 score do (win_score) — engagement potential ke basis pe\n"
+            f"2. Short opening message likho (2-3 sentences, Hinglish, max 2 emojis)\n"
+            f"   - Honest reaction, hype nahi\n"
+            f"   - Hooks/caption ke liye offer karo\n\n"
+            f"ONLY valid JSON return karo:\n"
+            f'{{ "win_score": 7, "message": "Ye concept solid lag raha hai — hooks se start karein?" }}'
         )
     else:
         prompt = (
-            f"You are Postra — a sharp, genuine Instagram content assistant.\n\n"
-            f"Creator's idea: \"{idea_title}\"\n\n"
-            f"This idea has already been validated — it is clear and usable.\n\n"
-            f"Write a short, genuine opening message (2-3 sentences):\n"
-            f"- Actually react to the idea — honest, not over-the-top hype\n"
-            f"- Make them feel Postra truly gets it\n"
-            f"- Offer to start with hooks/caption\n"
-            f"- Conversational, 1-2 emojis max\n\n"
-            f"Examples:\n"
-            f"- \"This has a solid angle 🔥 — the kind of content people actually stop for. Want to hit hooks?\"\n"
-            f"- \"Decent idea, honestly — it'll work well if we nail the hook. Want to start there?\"\n\n"
-            f"Return ONLY the message."
+            f"You are Postra — a sharp Instagram content assistant.\n"
+            f"Creator's idea: \"{idea_title}\"\n"
+            f"Niche: {niche} | Tone: {tone} | Goal: {goal}\n\n"
+            f"Do two things:\n"
+            f"1. Score this idea 1-10 (win_score) based on engagement potential\n"
+            f"2. Write a short opening message (2-3 sentences, max 2 emojis)\n"
+            f"   - Honest reaction, not hype\n"
+            f"   - Offer to start with hooks/caption\n\n"
+            f"Return ONLY valid JSON:\n"
+            f'{{ "win_score": 7, "message": "This has a solid angle — want to start with hooks?" }}'
         )
 
-    raw = _call_llm([{"role": "user", "content": prompt}], max_tokens=120)
-    return raw.strip().strip('"').strip("'")
+    try:
+        raw = _call_llm([{"role": "user", "content": prompt}], max_tokens=150)
+        text = raw.strip()
+        if text.startswith("```"):
+            lines = text.split("\n")[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+        parsed  = json.loads(text)
+        message = str(parsed.get("message", "")).strip().strip('"').strip("'")
+        score   = max(1, min(10, int(parsed.get("win_score", 5))))
+        if not message:
+            raise ValueError("empty message from Groq")
+        return message, score
+    except Exception as e:
+        print(f"[chat open] Groq scoring failed, using generic fallback: {e}")
+        fallback = (
+            "Idea dekh liya — hooks se shuru karein? 🔥"
+            if language == "hinglish"
+            else "Idea looks good — want to start with some hooks? 🔥"
+        )
+        return fallback, None
 
 
 # ── Chat orchestration ────────────────────────────────────────────────────────
@@ -731,10 +708,41 @@ async def handle_get_chat(supabase, chat_id: str, user_id: str) -> dict:
     if not messages:
         profile  = get_user_profile(supabase, user_id) or {}
         language = profile.get("language", "english")
+        niche    = profile.get("niche", "Lifestyle")
+        tone     = profile.get("tone", "Casual & fun")
+        goal     = profile.get("goal", "grow followers")
+        style    = profile.get("style", "Face-to-camera talking")
 
-        opening_text = await _generate_opening_message(chat["title"], language)
+        # Fetch the idea row to check if win_score is already known
+        idea_row  = _get_idea_for_chat(supabase, chat["idea_id"])
+        win_score = idea_row.get("win_score") if idea_row else None
+
+        if win_score is not None:
+            # ── Path A: win_score exists → static message, zero AI calls ─────
+            from app.services.chat_messages import get_static_opening_message
+            opening_text = get_static_opening_message(
+                win_score=win_score,
+                language=language,
+                niche=niche,
+                tone=tone,
+                goal=goal,
+                style=style,
+            )
+        else:
+            # ── Path B: win_score unknown → call Groq once, persist score ─────
+            opening_text, inferred_score = await _generate_opening_with_score(
+                idea_title=chat["title"],
+                language=language,
+                niche=niche,
+                tone=tone,
+                goal=goal,
+                style=style,
+            )
+            if inferred_score is not None and idea_row:
+                _save_win_score(supabase, chat["idea_id"], inferred_score)
+            win_score = inferred_score  # may still be None if Groq failed
+
         seq = get_next_sequence(supabase, chat_id)
-
         ai_msg = insert_message(
             supabase,
             chat_id=chat_id,
@@ -742,7 +750,8 @@ async def handle_get_chat(supabase, chat_id: str, user_id: str) -> dict:
             content=opening_text,
             source="assistant",
             msg_type="text",
-            metadata=None,
+            # win_score stored in metadata so the frontend can read it
+            metadata={"win_score": win_score},
         )
         messages = [ai_msg]
         stage    = "intro"

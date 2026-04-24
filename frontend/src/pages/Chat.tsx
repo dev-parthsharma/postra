@@ -98,6 +98,40 @@ function MessageBubble({ message }: { message: ChatMessage }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Weak score action strip
+// Shown below the first assistant message when win_score < 7.
+// Dismissed permanently once user clicks either button OR sends any message.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface WeakScoreActionsProps {
+  onImprove: () => void;
+  onDismiss: () => void;
+}
+
+function WeakScoreActions({ onImprove, onDismiss }: WeakScoreActionsProps) {
+  return (
+    <div className="pl-10 mt-1">
+      <div className="inline-flex items-center gap-2 p-1 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20">
+        <button
+          type="button"
+          onClick={onImprove}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-orange-500 hover:bg-orange-400 active:scale-95 text-white text-xs font-semibold transition-all shadow-sm shadow-orange-500/20"
+        >
+          Improve this idea 🚀
+        </button>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="px-3 py-1.5 rounded-xl text-amber-700 dark:text-amber-400 text-xs font-medium hover:bg-amber-100 dark:hover:bg-amber-500/20 transition-colors"
+        >
+          Continue anyway
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Typing indicator
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -157,16 +191,42 @@ export default function Chat() {
   const { state, bottomRef, setInputText, handleSend } = useChat(chatId ?? "");
   const { chat, messages, inputText, loading, sending, error } = state;
 
-  // Show quick suggestions after the first assistant message and before any user message
+  // Tracks whether the user dismissed the weak-score action strip.
+  // Default false = strip is visible until dismissed or user sends a message.
+  const [weakScoreDismissed, setWeakScoreDismissed] = useState(false);
+
+  // ── Derive win_score from the first assistant message metadata ────────────
+  const firstAssistantMsg = messages.find((m) => m.source === "assistant");
+  const openingWinScore: number | null =
+    (firstAssistantMsg?.metadata as Record<string, unknown> | null)?.win_score as number ?? null;
+
+  // Show the strip only when:
+  //   • score is known AND below 7
+  //   • user hasn't dismissed it
+  //   • no user message yet (once they reply, it's implicitly "continue anyway")
   const hasUserMessage = messages.some((m) => m.source === "user");
+  const showWeakScoreActions =
+    openingWinScore !== null &&
+    openingWinScore < 7 &&
+    !weakScoreDismissed &&
+    !hasUserMessage;
+
+  // Quick suggestion chips: shown after first assistant message, before any user reply
   const hasAssistantMessage = messages.some((m) => m.source === "assistant");
-  const showSuggestions = hasAssistantMessage && !hasUserMessage && !sending;
+  // Hide chips while weak-score strip is visible to avoid cluttering the UI
+  const showSuggestions =
+    hasAssistantMessage && !hasUserMessage && !sending && !showWeakScoreActions;
 
   const handleSuggestion = (text: string) => {
     setInputText(text);
-    // Small delay so user sees it filled, then auto-send
     setTimeout(() => handleSend(), 50);
   };
+
+  // Sending any message implicitly dismisses the strip
+  const handleSendWithDismiss = useCallback(() => {
+    setWeakScoreDismissed(true);
+    handleSend();
+  }, [handleSend]);
 
   // ── Loading ─────────────────────────────────────────────────────────────────
   if (loading) {
@@ -226,8 +286,25 @@ export default function Chat() {
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-[700px] mx-auto px-4 sm:px-6 py-6 space-y-6">
 
-          {messages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} />
+          {messages.map((msg, idx) => (
+            <div key={msg.id}>
+              <MessageBubble message={msg} />
+
+              {/*
+                Weak-score action strip — rendered directly after the first
+                assistant message (idx === 0) when score < 7 and not dismissed.
+                No blur, no overlay — message is always fully readable.
+              */}
+              {idx === 0 && msg.source === "assistant" && showWeakScoreActions && (
+                <WeakScoreActions
+                  onImprove={() => {
+                    // Improve flow wired up in a later step — no-op for now
+                    setWeakScoreDismissed(true);
+                  }}
+                  onDismiss={() => setWeakScoreDismissed(true)}
+                />
+              )}
+            </div>
           ))}
 
           {/* Quick suggestion chips — shown only before user has replied */}
@@ -265,7 +342,7 @@ export default function Chat() {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  handleSend();
+                  handleSendWithDismiss();
                 }
               }}
               disabled={sending}
@@ -277,8 +354,8 @@ export default function Chat() {
             <button
               type="button"
               onClick={() => {
-                if (showSuggestions && !inputText.trim()) return;
-                handleSend();
+                if (!inputText.trim()) return;
+                handleSendWithDismiss();
               }}
               disabled={!inputText.trim() || sending}
               className="flex-shrink-0 w-11 h-11 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
