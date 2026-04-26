@@ -76,6 +76,7 @@ def get_ideas_with_chat_status(supabase, user_id: str) -> list[dict]:
 # ── Chats ─────────────────────────────────────────────────────────────────────
 
 def create_chat(supabase, user_id: str, idea_id: str, title: str) -> dict:
+    # 1. Create the chat session
     response = (
         supabase.table("chats")
         .insert({
@@ -87,7 +88,22 @@ def create_chat(supabase, user_id: str, idea_id: str, title: str) -> dict:
     )
     if not response.data:
         raise RuntimeError("Failed to create chat")
-    return response.data[0]
+        
+    chat_data = response.data[0]
+    
+    # 2. Auto-create a linked empty Draft in the posts table 
+    # so it immediately appears on the Drafts page
+    try:
+        supabase.table("posts").insert({
+            "user_id": user_id,
+            "chat_id": chat_data["id"],
+            "idea_id": idea_id,
+            "status": "draft"
+        }).execute()
+    except Exception as e:
+        print(f"[create_chat] Failed to auto-create draft post: {e}")
+
+    return chat_data
 
 
 def get_chat_by_id(supabase, chat_id: str, user_id: str) -> Optional[dict]:

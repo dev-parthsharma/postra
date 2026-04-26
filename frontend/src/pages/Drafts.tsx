@@ -1,4 +1,3 @@
-// frontend/src/pages/Drafts.tsx
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
@@ -10,11 +9,10 @@ interface Draft {
   idea_id: string | null;
   hook: string | null;
   caption: string | null;
-  hashtags: string[] | null;
   status: "draft" | "ready" | "idea";
   created_at: string;
   updated_at: string;
-  idea?: string | null; // joined from ideas
+  idea?: string | null;
 }
 
 type FilterStatus = "all" | "draft" | "ready";
@@ -43,11 +41,10 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function StageBar({ hook, caption, hashtags }: { hook: string | null; caption: string | null; hashtags: string[] | null }) {
-  const steps = [
+function StageBar({ hook, caption }: { hook: string | null; caption: string | null }) {
+  const steps =[
     { label: "Hook",     done: !!hook },
     { label: "Caption",  done: !!caption },
-    { label: "Hashtags", done: !!(hashtags && hashtags.length > 0) },
   ];
   return (
     <div className="flex items-center gap-1 mt-2">
@@ -78,7 +75,8 @@ function DraftCard({ draft, onContinue, onDelete }: {
   onDelete: (id: string) => void;
 }) {
   const title = draft.hook || draft.idea || "Untitled draft";
-  const completedSteps = [draft.hook, draft.caption, draft.hashtags?.length].filter(Boolean).length;
+  // Only 2 steps now
+  const completedSteps = [draft.hook, draft.caption].filter(Boolean).length;
 
   return (
     <div className="group bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-2xl p-5 transition-all duration-200">
@@ -102,7 +100,7 @@ function DraftCard({ draft, onContinue, onDelete }: {
             {draft.idea && draft.hook && (
               <p className="text-zinc-500 text-xs mt-1 truncate">{draft.idea}</p>
             )}
-            <StageBar hook={draft.hook} caption={draft.caption} hashtags={draft.hashtags} />
+            <StageBar hook={draft.hook} caption={draft.caption} />
           </div>
         </div>
         <div className="flex flex-col items-end gap-2 flex-shrink-0">
@@ -118,31 +116,15 @@ function DraftCard({ draft, onContinue, onDelete }: {
         </div>
       )}
 
-      {/* Hashtag chips */}
-      {draft.hashtags && draft.hashtags.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {draft.hashtags.slice(0, 5).map((tag) => (
-            <span key={tag} className="text-[11px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-500 border border-zinc-700">
-              {tag}
-            </span>
-          ))}
-          {draft.hashtags.length > 5 && (
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-600 border border-zinc-700">
-              +{draft.hashtags.length - 5} more
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Progress bar */}
+      {/* Progress bar (Out of 2 steps) */}
       <div className="mt-4 flex items-center gap-3">
         <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
           <div
             className="h-full bg-gradient-to-r from-orange-500 to-orange-400 rounded-full transition-all duration-500"
-            style={{ width: `${(completedSteps / 3) * 100}%` }}
+            style={{ width: `${(completedSteps / 2) * 100}%` }}
           />
         </div>
-        <span className="text-zinc-600 text-xs flex-shrink-0">{completedSteps}/3 steps</span>
+        <span className="text-zinc-600 text-xs flex-shrink-0">{completedSteps}/2 steps</span>
       </div>
 
       {/* Actions */}
@@ -193,7 +175,7 @@ export default function DraftsPage() {
   const navigate = useNavigate();
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<FilterStatus>("all");
+  const[filter, setFilter] = useState<FilterStatus>("all");
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -203,22 +185,22 @@ export default function DraftsPage() {
 
       const { data } = await supabase
         .from("posts")
-        .select("id, chat_id, idea_id, hook, caption, hashtags, status, created_at, updated_at, ideas(idea)")
+        // Removed hashtags from select
+        .select("id, chat_id, idea_id, hook, caption, status, created_at, updated_at, ideas(idea)")
         .eq("user_id", user.id)
-        .in("status", ["draft", "ready", "idea"])
+        .in("status",["draft", "ready", "idea"])
         .order("updated_at", { ascending: false });
 
       if (data) {
         setDrafts(data.map((d: any) => ({
           ...d,
           idea: d.ideas?.idea ?? null,
-          hashtags: Array.isArray(d.hashtags) ? d.hashtags : null,
         })));
       }
       setLoading(false);
     };
     load();
-  }, []);
+  },[]);
 
   const handleDelete = async (id: string) => {
     setDrafts((prev) => prev.filter((d) => d.id !== id));
@@ -249,13 +231,11 @@ export default function DraftsPage() {
   return (
     <DashboardLayout>
       <div className="max-w-3xl mx-auto">
-        {/* Header */}
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-slate-900">Drafts</h1>
           <p className="text-slate-500 text-sm mt-1">Posts you're working on — pick up where you left off.</p>
         </div>
 
-        {/* Search + Filters */}
         <div className="flex flex-col sm:flex-row gap-3 mb-6">
           <div className="relative flex-1">
             <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">
@@ -287,7 +267,6 @@ export default function DraftsPage() {
           </div>
         </div>
 
-        {/* Content */}
         {loading ? (
           <div className="grid sm:grid-cols-2 gap-4">
             {[...Array(4)].map((_, i) => <SkeletonCard key={i} />)}

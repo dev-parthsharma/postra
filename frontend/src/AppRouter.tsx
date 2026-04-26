@@ -20,6 +20,7 @@ import CalendarPage from "./pages/Calendar";
 import SettingsPage from "./pages/Settings";
 import AutomationsPage from "./pages/Automations";
 import UpgradePage from "./pages/Upgrade";
+import MediaPage from "./pages/Media";
 
 // ── ProtectedRoute ────────────────────────────────────────────────────────────
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -173,6 +174,17 @@ export default function AppRouter() {
             <ProtectedRoute>
               <DashboardLayout>
                 <IdeasPage />
+              </DashboardLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/media"
+          element={
+            <ProtectedRoute>
+              <DashboardLayout>
+                <MediaPage />
               </DashboardLayout>
             </ProtectedRoute>
           }

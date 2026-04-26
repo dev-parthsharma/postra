@@ -145,6 +145,27 @@ export async function improveIdea(ideaId: string, ideaText: string): Promise<Imp
   return handleResponse<ImprovedIdeaResult>(res);
 }
 
+export async function updateIdea(
+  ideaId: string, 
+  chatId: string,
+  ideaText: string, 
+  whyItWorks: string, 
+  winScore: number
+): Promise<{ idea: Idea; new_opening_message?: string }> {
+  const res = await fetch(`${BASE}/api/ideas/${ideaId}`, {
+    method: "PATCH",
+    headers: await authHeaders(),
+    body: JSON.stringify({ 
+      chat_id: chatId,
+      idea_text: ideaText, 
+      why_it_works: whyItWorks, 
+      win_score: winScore 
+    }),
+  });
+  // Now it returns the full object instead of just data.idea
+  return handleResponse<{ idea: Idea; new_opening_message?: string }>(res);
+}
+
 export async function toggleFavourite(ideaId: string, isFavourite: boolean): Promise<Idea> {
   const res = await fetch(`${BASE}/api/ideas/favourite`, {
     method: "PATCH",

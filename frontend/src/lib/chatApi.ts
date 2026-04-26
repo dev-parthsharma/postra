@@ -47,7 +47,7 @@ export interface ChatMessage {
   content:    string;
   source:     MessageSource;
   type:       MessageType;
-  metadata:   null;
+  metadata:   Record<string, any> | null;
   created_at: string;
 }
 
@@ -78,29 +78,31 @@ export async function getChat(chatId: string): Promise<ChatDetail> {
  * Backend saves it, calls AI, saves AI reply.
  * Returns both the saved user message and the AI reply.
  */
+// Add intent to the sendMessage signature
 export async function sendMessage(
   chatId: string,
-  content: string
+  content: string,
+  intent?: string
 ): Promise<{ user_message: ChatMessage; ai_message: ChatMessage }> {
   const res = await fetch(`${BASE}/api/chat/${chatId}/message`, {
     method: "POST",
     headers: await authHeaders(),
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, intent }),
   });
   return handleResponse<{ user_message: ChatMessage; ai_message: ChatMessage }>(res);
 }
 
-// Kept for legacy compatibility
+// Keep your existing saveSelection as is
 export async function saveSelection(body: {
   chat_id: string;
   hook?: string;
   caption?: string;
-  hashtags?: string[];
-}): Promise<{ stage: ChatStage; ai_message: ChatMessage }> {
+  script?: string;
+}): Promise<{ stage: ChatStage; user_message: ChatMessage; ai_message: ChatMessage }> {
   const res = await fetch(`${BASE}/api/chat/select`, {
     method: "POST",
     headers: await authHeaders(),
     body: JSON.stringify(body),
   });
-  return handleResponse<{ stage: ChatStage; ai_message: ChatMessage }>(res);
+  return handleResponse<{ stage: ChatStage; user_message: ChatMessage; ai_message: ChatMessage }>(res);
 }

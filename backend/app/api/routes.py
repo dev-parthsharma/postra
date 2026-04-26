@@ -64,14 +64,21 @@ class ImproveIdeaRequest(BaseModel):
     idea_id: str
     idea_text: str = Field(..., min_length=1, max_length=500)
 
+class UpdateIdeaRequest(BaseModel):
+    chat_id: str
+    idea_text: str = Field(..., min_length=1, max_length=500)
+    why_it_works: str
+    win_score: int
+
 class SendMessageRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=2000)
+    intent: Optional[str] = None
 
 class SaveSelectionRequest(BaseModel):
     chat_id:  str
-    hook:     Optional[str]       = None
-    caption:  Optional[str]       = None
-    hashtags: Optional[list[str]] = None
+    hook:     Optional[str] = None
+    caption:  Optional[str] = None
+    script:   Optional[str] = None
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -253,7 +260,28 @@ def confirm_idea(
         return {"chat": chat}
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    
+@router.patch("/ideas/{idea_id}")
+def update_idea_route(
+    idea_id: str,
+    body: UpdateIdeaRequest,
+    user_id: str = Depends(get_current_user_id),
+    supabase=Depends(get_supabase),
+):
 
+    try:
+        result = ideas_service.handle_update_idea(
+            supabase, 
+            user_id, 
+            idea_id, 
+            body.chat_id,
+            body.idea_text, 
+            body.why_it_works, 
+            body.win_score
+        )
+        return result
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/ideas")
 def list_ideas(
@@ -304,7 +332,7 @@ async def send_message(
 ):
     try:
         result = await ideas_service.handle_send_message(
-            supabase, chat_id, user_id, body.content
+            supabase, chat_id, user_id, body.content, body.intent
         )
         return result
     except RuntimeError as e:
@@ -323,12 +351,12 @@ async def save_selection(
     provided = sum([
         body.hook is not None,
         body.caption is not None,
-        body.hashtags is not None,
+        body.script is not None,
     ])
     if provided != 1:
         raise HTTPException(
             status_code=400,
-            detail="Exactly one of hook, caption, or hashtags must be provided"
+            detail="Exactly one of hook, caption, or script must be provided"
         )
 
     try:
@@ -338,7 +366,7 @@ async def save_selection(
             chat_id=body.chat_id,
             hook=body.hook,
             caption=body.caption,
-            hashtags=body.hashtags,
+            script=body.script,
         )
         return result
     except (ValueError, RuntimeError) as e:
