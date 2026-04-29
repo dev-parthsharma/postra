@@ -78,20 +78,20 @@ JOIN:
 - media.user_id -> user_profile.id
 
 7) posts
-- id           : uuid
-- chat_id      : uuid
-- idea_id      : uuid
-- hook         : text
-- script       : text
-- guide        : text
-- caption      : text
-- hashtags     : jsonb
-- cover_image  : text
-- status       : text
-- created_at   : timestamptz
-- updated_at   : timestamptz
-- user_id      : uuid
-- posted_at    : timestamptz
+- id             : uuid
+- chat_id        : uuid
+- idea_id        : uuid
+- hook           : text
+- script         : text
+- caption        : text
+- cover_image    : text
+- status         : text
+- created_at     : timestamptz
+- updated_at     : timestamptz
+- user_id        : uuid
+- posted_at      : timestamptz
+- editing_guide  : text
+- shooting_guide : text
 
 JOINS:
 - posts.chat_id -> chats.id
