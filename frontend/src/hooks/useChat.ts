@@ -76,12 +76,13 @@ export function useChat(chatId: string) {
       // API FAILS: Sabse pehle user ka fake message UI se hatao
       setState((s) => ({ ...s, sending: false, messages: s.messages.filter(m => m.id !== tempId) }));
       
-      // Agar backend se Max Limit error aayi hai
       if (e.message?.includes("HOOK_LIMIT_REACHED")) {
-        return { success: false, limitReached: true };
+        return { success: false, limitReached: "hook" };
+      }
+      if (e.message?.includes("SCRIPT_LIMIT_REACHED")) {
+        return { success: false, limitReached: "script" };
       }
       
-      // Normal Error
       setState((s) => ({ ...s, error: e.message }));
       return { success: false };
     }

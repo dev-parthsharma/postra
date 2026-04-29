@@ -106,3 +106,24 @@ export async function saveSelection(body: {
   });
   return handleResponse<{ stage: ChatStage; user_message: ChatMessage; ai_message: ChatMessage }>(res);
 }
+
+export async function editScriptWithAI(
+  chatId: string, 
+  currentScript: string, 
+  prompt: string
+): Promise<{ updated_script: string }> {
+  const res = await fetch(`${BASE}/api/chat/${chatId}/edit-script`, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ current_script: currentScript, prompt }),
+  });
+  return handleResponse<{ updated_script: string }>(res);
+}
+
+export async function unlockScriptApi(chatId: string): Promise<{ script: string }> {
+  const res = await fetch(`${BASE}/api/chat/${chatId}/unlock-script`, {
+    method: "POST",
+    headers: await authHeaders(),
+  });
+  return handleResponse<{ script: string }>(res);
+}

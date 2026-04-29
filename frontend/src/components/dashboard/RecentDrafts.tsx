@@ -28,10 +28,23 @@ const STATUS_CONFIG = {
 
 function getContentType(post: DraftPost): string {
   const idea = post.idea?.toLowerCase() ?? "";
+  
+  // 🟢 FIX: Check if it's a real hook vs a temporary placeholder
+  const isTempHook = post.hook === post.idea || (post as any).chat_title === post.hook;
+  const hasRealHook = !!post.hook && !isTempHook;
+  
+  // Bypass TS types for new fields
+  const hasScript = !!(post as any).script;
+  const hasCaption = !!(post as any).caption; // <-- FIX: used (post as any)
+
   if (idea.includes("carousel")) return "Carousel";
-  if (idea.includes("reel")) return "Reel";
   if (idea.includes("story")) return "Story";
-  return post.hook ? "Reel · Script ready" : "Reel · Idea stage";
+
+  if (hasCaption) return "Reel · Caption ready";
+  if (hasScript) return "Reel · Script ready";
+  if (hasRealHook) return "Reel · Hook ready";
+  
+  return "Reel · Idea stage";
 }
 
 function PostIcon({ status }: { status: string }) {

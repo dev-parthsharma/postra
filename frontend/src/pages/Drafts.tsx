@@ -1,3 +1,5 @@
+// frontend/src/pages/Drafts.tsx
+
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
@@ -8,11 +10,13 @@ interface Draft {
   chat_id: string | null;
   idea_id: string | null;
   hook: string | null;
+  script: string | null; // <-- NEW
   caption: string | null;
   status: "draft" | "ready" | "idea";
   created_at: string;
   updated_at: string;
   idea?: string | null;
+  chat_title?: string | null;
 }
 
 type FilterStatus = "all" | "draft" | "ready";
@@ -41,10 +45,12 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function StageBar({ hook, caption }: { hook: string | null; caption: string | null }) {
+function StageBar({ hasHook, hasScript, hasCaption }: { hasHook: boolean; hasScript: boolean; hasCaption: boolean }) {
+  // 🟢 FIX: Ab yahan 3 steps hain
   const steps =[
-    { label: "Hook",     done: !!hook },
-    { label: "Caption",  done: !!caption },
+    { label: "Hook",     done: hasHook },
+    { label: "Script",   done: hasScript },
+    { label: "Caption",  done: hasCaption },
   ];
   return (
     <div className="flex items-center gap-1 mt-2">
@@ -74,9 +80,14 @@ function DraftCard({ draft, onContinue, onDelete }: {
   onContinue: (draft: Draft) => void;
   onDelete: (id: string) => void;
 }) {
-  const title = draft.hook || draft.idea || "Untitled draft";
-  // Only 2 steps now
-  const completedSteps = [draft.hook, draft.caption].filter(Boolean).length;
+  const title = draft.chat_title || draft.idea || "Untitled draft";
+  
+  // 🟢 FIX: Agar hook ka text exactly chat_title ya idea ke barabar hai, toh matlab temporary hook hai. Usko true mat maano.
+  const hasRealHook = !!draft.hook && draft.hook !== draft.chat_title && draft.hook !== draft.idea;
+  const hasScript = !!draft.script;
+  const hasCaption = !!draft.caption;
+
+  const completedSteps = [hasRealHook, hasScript, hasCaption].filter(Boolean).length;
 
   return (
     <div className="group bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-2xl p-5 transition-all duration-200">
@@ -96,11 +107,18 @@ function DraftCard({ draft, onContinue, onDelete }: {
             )}
           </div>
           <div className="flex-1 min-w-0">
+            {/* The Improved Idea / Title */}
             <p className="text-zinc-100 text-sm font-medium leading-snug line-clamp-2">{title}</p>
-            {draft.idea && draft.hook && (
-              <p className="text-zinc-500 text-xs mt-1 truncate">{draft.idea}</p>
+            
+            {/* The Hook (if REAL hook selected) */}
+            {hasRealHook && (
+              <p className="text-zinc-400 text-xs mt-1.5 truncate">
+                <span className="text-zinc-500 font-semibold mr-1">Hook:</span> 
+                {draft.hook}
+              </p>
             )}
-            <StageBar hook={draft.hook} caption={draft.caption} />
+            
+            <StageBar hasHook={hasRealHook} hasScript={hasScript} hasCaption={hasCaption} />
           </div>
         </div>
         <div className="flex flex-col items-end gap-2 flex-shrink-0">
@@ -116,15 +134,15 @@ function DraftCard({ draft, onContinue, onDelete }: {
         </div>
       )}
 
-      {/* Progress bar (Out of 2 steps) */}
+      {/* Progress bar */}
       <div className="mt-4 flex items-center gap-3">
         <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
           <div
             className="h-full bg-gradient-to-r from-orange-500 to-orange-400 rounded-full transition-all duration-500"
-            style={{ width: `${(completedSteps / 2) * 100}%` }}
+            style={{ width: `${(completedSteps / 3) * 100}%` }}
           />
         </div>
-        <span className="text-zinc-600 text-xs flex-shrink-0">{completedSteps}/2 steps</span>
+        <span className="text-zinc-600 text-xs flex-shrink-0">{completedSteps}/3 steps</span>
       </div>
 
       {/* Actions */}
@@ -175,18 +193,18 @@ export default function DraftsPage() {
   const navigate = useNavigate();
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [loading, setLoading] = useState(true);
-  const[filter, setFilter] = useState<FilterStatus>("all");
-  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<FilterStatus>("all");
+  const[search, setSearch] = useState("");
 
   useEffect(() => {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      // 🟢 FIX: Added `script` to the select query
       const { data } = await supabase
         .from("posts")
-        // Removed hashtags from select
-        .select("id, chat_id, idea_id, hook, caption, status, created_at, updated_at, ideas(idea)")
+        .select("id, chat_id, idea_id, hook, script, caption, status, created_at, updated_at, ideas(idea), chats(title)")
         .eq("user_id", user.id)
         .in("status",["draft", "ready", "idea"])
         .order("updated_at", { ascending: false });
@@ -195,6 +213,7 @@ export default function DraftsPage() {
         setDrafts(data.map((d: any) => ({
           ...d,
           idea: d.ideas?.idea ?? null,
+          chat_title: d.chats?.title ?? null,
         })));
       }
       setLoading(false);
@@ -215,8 +234,9 @@ export default function DraftsPage() {
     if (filter !== "all" && d.status !== filter) return false;
     if (search) {
       const q = search.toLowerCase();
-      return (d.hook ?? "").toLowerCase().includes(q) ||
+      return (d.chat_title ?? "").toLowerCase().includes(q) ||
              (d.idea ?? "").toLowerCase().includes(q) ||
+             (d.hook ?? "").toLowerCase().includes(q) ||
              (d.caption ?? "").toLowerCase().includes(q);
     }
     return true;

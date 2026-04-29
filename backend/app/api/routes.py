@@ -80,6 +80,10 @@ class SaveSelectionRequest(BaseModel):
     caption:  Optional[str] = None
     script:   Optional[str] = None
 
+class EditScriptRequest(BaseModel):
+    current_script: str = Field(..., min_length=1)
+    prompt: str = Field(..., min_length=1, max_length=1000)
+
 
 # ── Health ────────────────────────────────────────────────────────────────────
 
@@ -373,4 +377,33 @@ async def save_selection(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         print("CHAT SELECT ERROR:", str(e))
+        raise HTTPException(status_code=502, detail=str(e))
+    
+@router.post("/chat/{chat_id}/edit-script")
+async def edit_script_with_ai(
+    chat_id: str,
+    body: EditScriptRequest,
+    user_id: str = Depends(get_current_user_id),
+    supabase=Depends(get_supabase),
+):
+    try:
+        result = await ideas_service.handle_edit_script(
+            supabase, chat_id, user_id, body.current_script, body.prompt
+        )
+        return result
+    except Exception as e:
+        print("EDIT SCRIPT ERROR:", str(e))
+        raise HTTPException(status_code=502, detail=str(e))
+    
+@router.post("/chat/{chat_id}/unlock-script")
+async def unlock_script_endpoint(
+    chat_id: str,
+    user_id: str = Depends(get_current_user_id),
+    supabase=Depends(get_supabase),
+):
+    try:
+        result = await ideas_service.handle_unlock_script_content(supabase, chat_id, user_id)
+        return result
+    except Exception as e:
+        print("UNLOCK SCRIPT ERROR:", str(e))
         raise HTTPException(status_code=502, detail=str(e))

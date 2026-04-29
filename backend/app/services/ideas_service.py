@@ -66,7 +66,7 @@ def _mark_ideas_seen(user_id: str, ideas: list[str]) -> None:
 
 def _filter_seen(user_id: str, ideas: list[dict]) -> list[dict]:
     seen = _get_seen_ideas(user_id)
-    return [i for i in ideas if _cache_key(i.get("idea", "")) not in seen]
+    return[i for i in ideas if _cache_key(i.get("idea", "")) not in seen]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -124,7 +124,7 @@ def _is_gibberish(text: str) -> bool:
     tokens = re.findall(r"[a-zA-Z]+", stripped.lower())
     if not tokens:
         return True
-    meaningful = [t for t in tokens if len(t) > 1]
+    meaningful =[t for t in tokens if len(t) > 1]
     if not meaningful:
         return True
     real_ratio = sum(1 for t in meaningful if _looks_like_real_word(t)) / len(meaningful)
@@ -193,7 +193,7 @@ def _fetch_trends_for_niche(supabase, niche: str) -> list[str]:
         )
         return [row["trend"] for row in (resp.data or [])]
     except Exception:
-        return []
+        return[]
 
 
 def _build_generation_prompt(
@@ -262,7 +262,7 @@ Output format (strict JSON):
     "why_it_works": "Specific 10-18 word sentence explaining the exact psychological or strategic mechanism",
     "win_score": 8
   }},
-  "alternatives": [
+  "alternatives":[
     {{
       "idea": "Alternative idea one",
       "why_it_works": "Specific 10-18 word sentence explaining the exact psychological or strategic mechanism",
@@ -301,7 +301,7 @@ def _parse_structured_ideas(raw: str) -> dict:
     if "recommended" not in parsed or "alternatives" not in parsed:
         raise ValueError(f"AI response missing required keys: {list(parsed.keys())}")
     if not isinstance(parsed["alternatives"], list) or len(parsed["alternatives"]) < 2:
-        raise ValueError(f"Expected 2 alternatives, got {len(parsed.get('alternatives', []))}")
+        raise ValueError(f"Expected 2 alternatives, got {len(parsed.get('alternatives',[]))}")
 
     def _clean_idea_obj(obj: dict) -> dict:
         return {
@@ -427,7 +427,7 @@ async def handle_generate_ideas(supabase, user_id: str) -> dict:
             "why_it_works": rec["why_it_works"],
             "win_score": rec["win_score"],
         },
-        "alternatives": [
+        "alternatives":[
             {**saved_alt1, "why_it_works": alt1["why_it_works"], "win_score": alt1["win_score"]},
             {**saved_alt2, "why_it_works": alt2["why_it_works"], "win_score": alt2["win_score"]},
         ],
@@ -575,7 +575,6 @@ def handle_update_idea(
 ) -> dict:
     cleaned_idea = idea_text.strip()
     
-    # Update the existing idea row
     idea_update = (
         supabase.table("ideas")
         .update({
@@ -592,12 +591,10 @@ def handle_update_idea(
         
     result = {"idea": idea_update.data[0]}
         
-    # Update chat title strictly using chat_id
     supabase.table("chats").update({
         "title": cleaned_idea[:250]
     }).eq("id", chat_id).execute()
     
-    # Regenerate opening message & update messages table
     try:
         from app.integrations.queries import get_user_profile
         from app.services.chat_messages import get_static_opening_message
@@ -612,7 +609,6 @@ def handle_update_idea(
             style=profile.get("style", "Face-to-camera talking"),
         )
         
-        # Select the very first AI message in THIS chat
         msg_resp = (
             supabase.table("messages")
             .select("id")
@@ -653,16 +649,12 @@ def handle_get_ideas(supabase, user_id: str) -> list[dict]:
     return get_ideas_with_chat_status(supabase, user_id)
 
 
-# ── AI call helper ────────────────────────────────────────────────────────────
-
 def _call_llm(messages: list[dict], max_tokens: int = 600) -> str:
     prompt = "\n\n".join(
         f"[{m['role'].upper()}]\n{m['content']}" for m in messages
     )
     return generate_content(prompt)
 
-
-# ── Stage derivation ──────────────────────────────────────────────────────────
 
 def _derive_stage(messages: list[dict]) -> str:
     if not messages:
@@ -673,10 +665,7 @@ def _derive_stage(messages: list[dict]) -> str:
     return "chatting"
 
 
-# ── Chat open helpers ─────────────────────────────────────────────────────────
-
 def _get_idea_for_chat(supabase, idea_id: str) -> Optional[dict]:
-    """Fetch the idea row linked to this chat. Returns None on any error."""
     try:
         resp = (
             supabase.table("ideas")
@@ -691,11 +680,10 @@ def _get_idea_for_chat(supabase, idea_id: str) -> Optional[dict]:
 
 
 def _save_win_score(supabase, idea_id: str, win_score: int) -> None:
-    """Persist a newly inferred win_score to the ideas row. Best-effort, non-blocking."""
     try:
         supabase.table("ideas").update({"win_score": win_score}).eq("id", idea_id).execute()
     except Exception:
-        pass  # non-critical — next open will retry
+        pass
 
 
 async def _generate_opening_with_score(
@@ -706,11 +694,6 @@ async def _generate_opening_with_score(
     goal: str,
     style: str,
 ) -> tuple[str, Optional[int]]:
-    """
-    Calls Groq once to produce an opening message AND infer a win_score.
-    Returns (message_text, win_score_or_None).
-    Falls back to a plain generic message if Groq fails — never raises.
-    """
     if language == "hinglish":
         prompt = (
             f"Tu Postra hai — sharp Instagram content assistant.\n"
@@ -762,8 +745,6 @@ async def _generate_opening_with_score(
         return fallback, None
 
 
-# ── Chat orchestration ────────────────────────────────────────────────────────
-
 async def handle_get_chat(supabase, chat_id: str, user_id: str) -> dict:
     chat = get_chat_by_id(supabase, chat_id, user_id)
     if not chat:
@@ -780,12 +761,10 @@ async def handle_get_chat(supabase, chat_id: str, user_id: str) -> dict:
         goal     = profile.get("goal", "grow followers")
         style    = profile.get("style", "Face-to-camera talking")
 
-        # Fetch the idea row to check if win_score is already known
         idea_row  = _get_idea_for_chat(supabase, chat["idea_id"])
         win_score = idea_row.get("win_score") if idea_row else None
 
         if win_score is not None:
-            # ── Path A: win_score exists → static message, zero AI calls ─────
             from app.services.chat_messages import get_static_opening_message
             opening_text = get_static_opening_message(
                 win_score=win_score,
@@ -796,7 +775,6 @@ async def handle_get_chat(supabase, chat_id: str, user_id: str) -> dict:
                 style=style,
             )
         else:
-            # ── Path B: win_score unknown → call Groq once, persist score ─────
             opening_text, inferred_score = await _generate_opening_with_score(
                 idea_title=chat["title"],
                 language=language,
@@ -807,7 +785,7 @@ async def handle_get_chat(supabase, chat_id: str, user_id: str) -> dict:
             )
             if inferred_score is not None and idea_row:
                 _save_win_score(supabase, chat["idea_id"], inferred_score)
-            win_score = inferred_score  # may still be None if Groq failed
+            win_score = inferred_score
 
         seq = get_next_sequence(supabase, chat_id)
         ai_msg = insert_message(
@@ -817,19 +795,15 @@ async def handle_get_chat(supabase, chat_id: str, user_id: str) -> dict:
             content=opening_text,
             source="assistant",
             msg_type="text",
-            # Add CTA to metadata
             metadata={"win_score": win_score, "cta": "generate_hooks", "cta_text": "Generate Hooks 🚀"},
         )
-        messages = [ai_msg]
+        messages =[ai_msg]
         stage    = "intro"
 
     return {**chat, "stage": stage, "messages": messages}
 
+
 def _route_message_intent(history_text: str, user_message: str, language: str) -> dict:
-    """
-    Uses Groq to quickly classify the user's intent into a specific tool/action.
-    If it's just chat/greetings, Groq generates the reply instantly.
-    """
     prompt = f"""You are the routing brain for an Instagram content assistant.
 Determine the user's intent from their latest message.
 
@@ -859,7 +833,6 @@ Return ONLY valid JSON format:
     try:
         raw = _call_llm([{"role": "user", "content": prompt}], max_tokens=300)
         text = raw.strip()
-        # Clean markdown formatting if Groq adds it
         if text.startswith("```"):
             lines = text.split("\n")
             if lines[0].startswith("```"): lines = lines[1:]
@@ -878,14 +851,19 @@ Return ONLY valid JSON format:
 def _generate_specialized_content(
     action: str, idea_title: str, user_message: str, history_text: str, niche: str, tone: str, language: str
 ) -> str:
-    """
-    Calls Gemini (with Groq fallback via generate_content_gemini_first)
-    using a tailored prompt based on the specific action routed by Groq.
-    """
     instructions = {
         "generate_hooks": "Generate or refine highly engaging Instagram Reel hooks (text only).",
         "generate_caption": "Write or refine an Instagram caption. Include relevant hashtags at the bottom.",
-        "generate_script": "Write or refine a complete Reel script including visual cues and audio cues.",
+        "generate_script": (
+            "Write the script in this EXACT format with explicit headings:\n\n"
+            "Hook:\n"
+            "[The exact hook the user previously selected]\n\n"
+            "Body:\n"
+            "[Write a simple, raw, and powerful script. Focus on strong pacing and natural speaking rhythm using short sentences and line breaks. DO NOT use bracketed speaking instructions or pause markers like '[Speak excitedly, 1 sec pause]'. Just pure, high-retention dialogue.]\n\n"
+            "CTA:\n"
+            "[The final Call to Action line]\n\n"
+            "Do NOT include visual cues, camera angles, or B-roll descriptions. Focus entirely on the vocal delivery format."
+        ),
         "generate_editing_guide": "Provide an editing guide (text overlays, pacing, cuts, sound effects).",
         "generate_shooting_guide": "Provide a shooting guide (camera angles, lighting, B-roll, acting tips).",
         "generate_other": "Fulfill the user's content request related to this post."
@@ -895,7 +873,6 @@ def _generate_specialized_content(
     
     lang_rule = "- Write in Hinglish (a natural mix of Hindi and English)." if language == "hinglish" else "- Write in clear, engaging English."
     
-    # Enforce pure English for captions as requested earlier
     if action == "generate_caption":
         lang_rule += "\n- STRICT RULE: The CAPTION TEXT ITSELF MUST ALWAYS BE PURE ENGLISH, because English captions get better reach. If you need to explain things, you can use the user's language, but the actual caption block must be English."
         
@@ -912,96 +889,120 @@ Recent conversation context:
 User's current request: "{user_message}"
 
 Provide exactly what the user asked for based on the context. Be direct, practical, and highly engaging.
-Do NOT use generic conversational filler like "Here are your hooks:". Just output the high-value content.
+Do NOT use generic conversational filler like "Here are your hooks:" or "Here is your script:". Just output the high-value content directly.
 """
-    # This automatically tries Gemini first, and falls back to Groq if Gemini fails
     from app.services.llm_service import generate_content_gemini_first
     return generate_content_gemini_first(prompt)
 
-# UPDATE handle_send_message signature
+
 async def handle_send_message(supabase, chat_id: str, user_id: str, content: str, intent: Optional[str] = None) -> dict:
     chat = get_chat_by_id(supabase, chat_id, user_id)
     if not chat:
         raise RuntimeError("Chat not found")
 
     messages = get_messages_for_chat(supabase, chat_id)
-    profile  = get_user_profile(supabase, user_id) or {}
+    profile = get_user_profile(supabase, user_id) or {}
     language = profile.get("language", "english")
-    niche    = profile.get("niche", "Lifestyle")
-    tone     = profile.get("tone", "Casual & fun")
+    niche = profile.get("niche", "Lifestyle")
+    tone = profile.get("tone", "Casual & fun")
+    plan = profile.get("plan", "free").lower()
 
-    history_lines =[]
+    seq = get_next_sequence(supabase, chat_id)
+    user_msg = insert_message(
+        supabase, chat_id=chat_id, sequence=seq, content=content,
+        source="user", msg_type="text", metadata=None,
+    )
+
+    history_lines = []
     for m in messages[-4:]:
         role = "AI" if m["source"] == "assistant" else "User"
         history_lines.append(f"{role}: {m['content']}")
     history_text = "\n".join(history_lines)
 
-    # 1. Pehle intent find karo
+    metadata = None
+
     if intent == "generate_hooks":
         action = "generate_hooks"
+        reply_text = ""
+    elif intent == "generate_script":
+        action = "generate_script"
+        reply_text = ""
+    elif intent == "generate_caption":
+        action = "generate_caption"
         reply_text = ""
     else:
         route = _route_message_intent(history_text, content, language)
         action = route.get("action", "generate_other")
         reply_text = route.get("reply", "").strip()
 
-    # 2. Limit Validate karo (DB insert se PEHLE)
+    # ── LIMITS ENFORCEMENT ──
+    hook_count = sum(1 for m in messages if m.get("metadata") and isinstance(m["metadata"], dict) and m["metadata"].get("type") == "hook_selection")
+    
+    all_script_msgs =[m for m in messages if m.get("metadata") and isinstance(m["metadata"], dict) and m["metadata"].get("type") == "editable_script"]
+    script_count = len(all_script_msgs)
+    locked_script_count = sum(1 for m in all_script_msgs if m["metadata"].get("is_locked"))
+    real_script_count = script_count - locked_script_count
+    
+    caption_count = sum(1 for m in messages if m.get("metadata") and isinstance(m["metadata"], dict) and m["metadata"].get("type") == "caption_selection")
+    
+    max_generations = 3 if plan == "pro" else (2 if plan == "starter" else 1)
+
     if action in ["generate_hooks", "generate_hooks_structured"]:
-        hook_count = sum(1 for m in messages if (m.get("metadata") or {}).get("type") == "hook_selection")
-        if hook_count >= 3:
-            raise RuntimeError("HOOK_LIMIT_REACHED")
+        if script_count >= 1:
+            action = "blocked_hook_post_script" 
+        elif hook_count >= max_generations:
+            action = "blocked_hook" 
+    elif action == "generate_script":
+        if real_script_count >= 1:
+            action = "blocked_script"
+        elif script_count >= 1 and plan == "free":
+            action = "blocked_script"
+    elif action in["generate_caption", "generate_caption_structured"]:
+        if caption_count >= max_generations:
+            action = "blocked_caption"
 
-    # 3. Agar limit pass ho gayi, tab hi user message ko DB mein save karo
-    seq      = get_next_sequence(supabase, chat_id)
-    user_msg = insert_message(
-        supabase,
-        chat_id=chat_id,
-        sequence=seq,
-        content=content,
-        source="user",
-        msg_type="text",
-        metadata=None,
-    )
+    # ── ACTION EXECUTION ──
+    if action == "blocked_hook_post_script":
+        ai_reply_text = "You cannot generate new hooks because the script has already been generated. Please edit the script directly." if language != "hinglish" else "Script pehle hi generate ho chuki hai, naye hooks generate nahi kiye ja sakte. Existing script edit karein."
+        metadata = {"limitReached": "hook_post_script"}
 
-    metadata = None
+    elif action == "blocked_hook":
+        ai_reply_text = "You have already reached the hook generation limit for your plan. Please select a hook from the options provided above." if language != "hinglish" else "Hook generation ki limit poori ho gayi hai. Upar diye gaye options mein se select karein."
+        metadata = {"limitReached": "hook"}
 
-    if action in ["chat", "unrelated"] and reply_text:
+    elif action == "blocked_script":
+        ai_reply_text = "You have already generated a script. Please review and edit the existing script above." if language != "hinglish" else "Aap ek baar script generate kar chuke hain. Kripya existing script ko hi edit karein."
+        metadata = {"limitReached": "script"}
+
+    elif action == "blocked_caption":
+        ai_reply_text = "You have already reached the caption generation limit for your plan. Please select a caption from the options provided above." if language != "hinglish" else "Caption generation ki limit poori ho gayi hai. Upar diye gaye options mein se select karein."
+        metadata = {"limitReached": "caption"}
+
+    elif action in["chat", "unrelated"] and reply_text:
         ai_reply_text = reply_text
-    elif action == "generate_hooks" or action == "generate_hooks_structured":
-        # SPECIAL STRUCTURED HOOKS CALL (Handles both CTA click & Manual typing)
-        prompt = f"""You are an elite Instagram content strategist.
-Niche: {niche} | Tone: {tone}
-Post Idea: "{chat['title']}"
 
+    elif action in["generate_hooks", "generate_hooks_structured"]:
+        prompt = f"""You are an elite Instagram content strategist.
+Niche: {niche} | Tone: {tone} | Post Idea: "{chat['title']}"
 Recent conversation context:
 {history_text}
-
 User's current request: "{content}"
-
 Task: Generate exactly 3 highly engaging Instagram Reel hooks based on the user's request.
 Rules:
 - Short, punchy, curiosity-driven.
 - Language: {'Hinglish' if language == 'hinglish' else 'English'}.
 - Return ONLY valid JSON format. Do not use markdown blocks.
-
-{{
-  "hooks":["hook 1", "hook 2", "hook 3"]
-}}"""
+{{ "hooks":["hook 1", "hook 2", "hook 3"] }}"""
         from app.services.llm_service import generate_content_gemini_first
         try:
             raw = generate_content_gemini_first(prompt).strip()
-            # Clean markdown formatting if AI adds it
             if raw.startswith("```"):
                 lines = raw.split("\n")
                 if lines[0].startswith("```"): lines = lines[1:]
                 if lines and lines[-1].startswith("```"): lines = lines[:-1]
                 raw = "\n".join(lines).strip()
-            
-            # Failsafe: Extract JSON block if there's any extra conversational text
             match = re.search(r'\{.*\}', raw, re.DOTALL)
-            if match:
-                raw = match.group()
-
+            if match: raw = match.group()
             parsed = json.loads(raw)
             metadata = {"type": "hook_selection", "options": parsed.get("hooks",[])}
             ai_reply_text = "Here are 3 solid hook angles. Pick the one that hits hardest: 🔥" if language != "hinglish" else "Ye rahe 3 solid hook angles. Jo sabse best lage use select karo: 🔥"
@@ -1010,53 +1011,98 @@ Rules:
             ai_reply_text = "Sorry, I couldn't generate the hooks properly. Try again."
 
     elif action == "generate_script":
-        # SPECIAL STRUCTURED SCRIPT CALL
+        if plan == "free":
+            # FAST BYPASS: Fake the generation for Free users, saving API costs.
+            selected_hook = chat["title"]
+            for m in reversed(messages):
+                if m["source"] == "user":
+                    if "I want to go with this hook:" in m["content"]:
+                        selected_hook = m["content"].split("\n\n")[-1].strip()
+                        break
+                    elif "Main is hook ke sath jaunga:" in m["content"]:
+                        selected_hook = m["content"].split("\n\n")[-1].strip()
+                        break
+            
+            raw_script = f"Hook:\n{selected_hook}\n\nBody:\n[LOCKED]\n\nCTA:\n[LOCKED]"
+            
+            # Save the locked draft
+            upsert_post(supabase, user_id, chat_id, idea_id=chat["idea_id"], script=raw_script, status="draft")
+            
+            ai_reply_text = "I've structured your script, but the full body is locked on the Free plan! 🔒 Upgrade to unlock and edit it." if language != "hinglish" else "Script structure ready hai par Free plan mein body locked hai! 🔒 Pura script dekhne ke liye upgrade karein."
+            
+            metadata = {
+                "type": "editable_script", 
+                "script_text": raw_script, 
+                "is_locked": True
+            }
+        else:
+            try:
+                raw_script = _generate_specialized_content(action=action, idea_title=chat["title"], user_message=content, history_text=history_text, niche=niche, tone=tone, language=language)
+
+                upsert_post(supabase, user_id, chat_id, idea_id=chat["idea_id"], script=raw_script, status="draft")
+
+                ai_reply_text = "Script is ready and auto-saved to your drafts! 🎬 Want me to write a catchy caption?" if language != "hinglish" else "Script ready hai aur drafts mein auto-save ho gayi! 🎬 Ab ek solid caption likhein?"
+                metadata = {"type": "editable_script", "script_text": raw_script, "cta": "generate_caption", "cta_text": "Write Caption ✍️"}
+            
+            except Exception as e:
+                print(f"[Generation Error] Script failed: {e}")
+                ai_reply_text = "Mujhe abhi kuch technical issue aa raha hai, please try again. 🙏" if language == "hinglish" else "I'm facing a technical issue right now, please try again in a moment. 🙏"
+
+    # 🟢 YAHAN SE DUPLICATE HOOK WALA BLOCK HATA DIYA HAI 🟢
+
+    elif action in["generate_caption", "generate_caption_structured"]:
+        prompt = f"""You are an elite Instagram content strategist.
+Niche: {niche} | Tone: {tone} | Post Idea: "{chat['title']}"
+Recent conversation context:
+{history_text}
+User's current request: "{content}"
+
+Task: Generate exactly 3 engaging Instagram captions based on the user's request and the script.
+Rules:
+- The FIRST caption MUST be Medium length (3-4 lines) + relevant hashtags. (This is the highly-recommended version).
+- The SECOND caption MUST be Short length (1-2 lines) + relevant hashtags.
+- The THIRD caption MUST be Long length (6-7 lines) + relevant hashtags.
+- DO NOT add labels like "Medium:", "Short:", "Caption 1:" inside the text itself. Just output the raw caption text.
+- STRICT RULE: The CAPTION TEXT ITSELF MUST ALWAYS BE PURE ENGLISH, because English captions get better reach.
+- Return ONLY valid JSON format. Do not use markdown blocks.
+{{ "captions":["medium caption text...", "short caption text...", "long caption text..."] }}"""
+        
+        from app.services.llm_service import generate_content_gemini_first
         try:
-            raw_script = _generate_specialized_content(
-                action=action, idea_title=chat['title'], user_message=content, history_text=history_text, niche=niche, tone=tone, language=language
-            )
-            ai_reply_text = "Here is the script draft. Review and edit it to make it your own: 📝" if language != "hinglish" else "Ye rahi aapki script. Ek baar check karein aur apne hisaab se edit kar lein: 📝"
-            metadata = {"type": "editable_script", "script_text": raw_script}
+            raw = generate_content_gemini_first(prompt).strip()
+            if raw.startswith("```"):
+                lines = raw.split("\n")
+                if lines[0].startswith("```"): lines = lines[1:]
+                if lines and lines[-1].startswith("```"): lines = lines[:-1]
+                raw = "\n".join(lines).strip()
+            match = re.search(r'\{.*\}', raw, re.DOTALL)
+            if match: raw = match.group()
+            
+            parsed = json.loads(raw)
+            metadata = {"type": "caption_selection", "options": parsed.get("captions",[])}
+            ai_reply_text = "Here are 3 caption options (Medium, Short, and Detailed). Pick the one that fits best: ✨" if language != "hinglish" else "Ye rahe 3 solid captions (Medium, Short, aur Detailed). Jo sabse sahi lage use select karo: ✨"
         except Exception as e:
-            print(f"[Generation Error] Script failed: {e}")
-            ai_reply_text = "Mujhe abhi kuch technical issue aa raha hai, please try again. 🙏"
+            print("Failed structured captions:", e)
+            ai_reply_text = "Sorry, I couldn't generate the captions properly. Try again." if language != "hinglish" else "Sorry, caption generate karne mein issue aaya. Phir se try karein."
 
     else:
-        # Normal specialized content generation (Scripts, Editing guides, etc.)
         try:
-            ai_reply_text = _generate_specialized_content(
-                action=action, idea_title=chat['title'], user_message=content, history_text=history_text, niche=niche, tone=tone, language=language
-            )
+            ai_reply_text = _generate_specialized_content(action=action, idea_title=chat["title"], user_message=content, history_text=history_text, niche=niche, tone=tone, language=language)
         except Exception as e:
             print(f"[Generation Error] Specialized generation failed: {e}")
-            ai_reply_text = "Mujhe abhi kuch technical issue aa raha hai, please thodi der mein try karein. 🙏" if language == "hinglish" else "I'm facing a technical issue right now, please try again in a moment. 🙏"
+            ai_reply_text = "Mujhe abhi kuch technical issue aa raha hai, please try again. 🙏" if language == "hinglish" else "I'm facing a technical issue right now, please try again. 🙏"
 
-    seq2   = get_next_sequence(supabase, chat_id)
-    ai_msg = insert_message(
-        supabase,
-        chat_id=chat_id,
-        sequence=seq2,
-        content=ai_reply_text,
-        source="assistant",
-        msg_type="text",
-        metadata=metadata,
-    )
+    seq2 = get_next_sequence(supabase, chat_id)
+    ai_msg = insert_message(supabase, chat_id=chat_id, sequence=seq2, content=ai_reply_text, source="assistant", msg_type="text", metadata=metadata)
 
-    return {"user_message": user_msg, "ai_message": ai_msg}
+    return {"user_message": user_msg, "ai_message": ai_msg, "limitReached": metadata.get("limitReached") if isinstance(metadata, dict) else None}
 
-# ── Legacy selection handler ──────────────────────────────────────────────────
 
 async def handle_save_selection(
-    supabase,
-    user_id: str,
-    chat_id: str,
-    hook: Optional[str] = None,
-    caption: Optional[str] = None,
-    script: Optional[str] = None,
+    supabase, user_id: str, chat_id: str, hook: Optional[str] = None, caption: Optional[str] = None, script: Optional[str] = None,
 ) -> dict:
     chat = get_chat_by_id(supabase, chat_id, user_id)
-    if not chat:
-        raise RuntimeError("Chat not found")
+    if not chat: raise RuntimeError("Chat not found")
 
     idea_id  = chat["idea_id"]
     profile  = get_user_profile(supabase, user_id) or {}
@@ -1064,12 +1110,9 @@ async def handle_save_selection(
 
     seq = get_next_sequence(supabase, chat_id)
     user_text = ""
-    if hook:
-        user_text = f"I want to go with this hook:\n\n{hook}" if language != "hinglish" else f"Main is hook ke sath jaunga:\n\n{hook}"
-    elif script:
-        user_text = f"Script locked and saved:\n\n{script}" if language != "hinglish" else f"Script final ho gayi:\n\n{script}"
-    elif caption:
-        user_text = f"I'll use this caption:\n\n{caption}" if language != "hinglish" else f"Main ye caption use karunga:\n\n{caption}"
+    if hook: user_text = f"I want to go with this hook:\n\n{hook}" if language != "hinglish" else f"Main is hook ke sath jaunga:\n\n{hook}"
+    elif script: user_text = f"I updated the script:\n\n{script}" if language != "hinglish" else f"Maine script update kar di:\n\n{script}"
+    elif caption: user_text = f"I'll use this caption:\n\n{caption}" if language != "hinglish" else f"Main ye caption use karunga:\n\n{caption}"
 
     user_msg = insert_message(supabase, chat_id=chat_id, sequence=seq, content=user_text, source="user", msg_type="text", metadata=None)
 
@@ -1080,7 +1123,7 @@ async def handle_save_selection(
         metadata = {"cta": "generate_script", "cta_text": "Write Full Script 📝"}
     elif script is not None:
         upsert_post(supabase, user_id, chat_id, idea_id=idea_id, script=script, status="draft")
-        ai_content = "Script saved! 🎬 Want me to write a catchy caption for it?" if language != "hinglish" else "Script save ho gayi! 🎬 Ab ek solid caption likhein?"
+        ai_content = "Script updated successfully! ✅ Want me to write a catchy caption for it?" if language != "hinglish" else "Script update ho gayi! ✅ Ab ek solid caption likhein?"
         metadata = {"cta": "generate_caption", "cta_text": "Write Caption ✍️"}
     elif caption is not None:
         upsert_post(supabase, user_id, chat_id, idea_id=idea_id, caption=caption, status="ready")
@@ -1090,3 +1133,100 @@ async def handle_save_selection(
     ai_msg = insert_message(supabase, chat_id=chat_id, sequence=seq2, content=ai_content, source="assistant", msg_type="text", metadata=metadata)
 
     return {"stage": "chatting", "user_message": user_msg, "ai_message": ai_msg}
+
+
+async def handle_edit_script(supabase, chat_id: str, user_id: str, current_script: str, user_prompt: str) -> dict:
+    profile = get_user_profile(supabase, user_id) or {}
+    language = profile.get("language", "english")
+    
+    prompt = f"""You are an expert Instagram content editor.
+The user wants to make specific changes to their current video/reel script.
+
+Current Script:
+{current_script}
+
+User's edit instruction: "{user_prompt}"
+
+Task: Apply the exact changes requested by the user to the current script.
+Rules:
+1. Keep the language identical to the current script.
+2. ONLY return the updated script text. Do not use markdown blocks like ```.
+3. DO NOT include any conversational filler (e.g. "Here is the updated script").
+4. Preserve the original structure and content, ONLY making the requested modifications.
+"""
+    from app.services.llm_service import generate_content, generate_content_gemini_first
+    
+    try:
+        raw = generate_content(prompt)
+    except Exception as e:
+        print(f"[AI Edit] Groq failed, falling back to Gemini: {e}")
+        raw = generate_content_gemini_first(prompt)
+        
+    text = raw.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        if lines[0].startswith("```"): lines = lines[1:]
+        if lines and lines[-1].startswith("```"): lines = lines[:-1]
+        text = "\n".join(lines).strip()
+        
+    return {"updated_script": text}
+
+async def handle_unlock_script_content(supabase, chat_id: str, user_id: str) -> dict:
+    profile = get_user_profile(supabase, user_id) or {}
+    plan = profile.get("plan", "free").lower()
+    
+    if plan == "free":
+        raise ValueError("Upgrade required to unlock script.")
+
+    chat = get_chat_by_id(supabase, chat_id, user_id)
+    if not chat:
+        raise RuntimeError("Chat not found")
+
+    messages = get_messages_for_chat(supabase, chat_id)
+
+    # Reconstruct history context
+    history_lines = []
+    for m in messages[-4:]:
+        role = "AI" if m["source"] == "assistant" else "User"
+        history_lines.append(f"{role}: {m['content']}")
+    history_text = "\n".join(history_lines)
+
+    # Call AI to generate the full script
+    raw_script = _generate_specialized_content(
+        action="generate_script",
+        idea_title=chat["title"],
+        user_message="Generate my full script now",
+        history_text=history_text,
+        niche=profile.get("niche", "Lifestyle"),
+        tone=profile.get("tone", "Casual & fun"),
+        language=profile.get("language", "english")
+    )
+
+    # 🟢 MAIN FIX: Find the old locked message in DB and UNLOCK IT permanently!
+    locked_msg = None
+    for m in reversed(messages):
+        if m["source"] == "assistant" and m.get("metadata") and m["metadata"].get("is_locked"):
+            locked_msg = m
+            break
+    
+    if locked_msg:
+        new_metadata = dict(locked_msg["metadata"])
+        new_metadata["script_text"] = raw_script
+        new_metadata["is_locked"] = False # Hamesha ke liye unlock ho gaya
+        new_metadata["cta"] = "generate_caption"
+        new_metadata["cta_text"] = "Write Caption ✍️"
+        
+        language = profile.get("language", "english")
+        new_content = "Script unlocked and ready! 🎬 Want me to write a catchy caption?" if language != "hinglish" else "Script unlock ho gayi hai! 🎬 Ab ek solid caption likhein?"
+
+        # Chat bubble update in DB
+        supabase.table("messages").update({
+            "content": new_content,
+            "metadata": new_metadata
+        }).eq("id", locked_msg["id"]).execute()
+
+    # 🟢 MAIN FIX: Update the actual Draft Post so it appears on Preview/Drafts page!
+    from app.integrations.queries import upsert_post
+    upsert_post(supabase, user_id, chat_id, idea_id=chat["idea_id"], script=raw_script, status="draft")
+
+    return {"script": raw_script}

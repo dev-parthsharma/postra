@@ -18,7 +18,7 @@ def fetch_user_count() -> int:
 # ── Ideas ─────────────────────────────────────────────────────────────────────
 
 def insert_ideas(supabase, user_id: str, ideas: list[str], source: str) -> list[dict]:
-    rows = [
+    rows =[
         {
             "user_id": user_id,
             "idea": idea.strip(),
@@ -56,7 +56,7 @@ def get_ideas_with_chat_status(supabase, user_id: str) -> list[dict]:
         .execute()
     )
 
-    ideas = response.data or []
+    ideas = response.data or[]
 
     for idea in ideas:
         chat = idea.get("chats")
@@ -98,7 +98,10 @@ def create_chat(supabase, user_id: str, idea_id: str, title: str) -> dict:
             "user_id": user_id,
             "chat_id": chat_data["id"],
             "idea_id": idea_id,
-            "status": "draft"
+            "status": "draft",
+            "hook": title[:200],
+            "script": "",
+            "caption": ""
         }).execute()
     except Exception as e:
         print(f"[create_chat] Failed to auto-create draft post: {e}")
@@ -126,7 +129,7 @@ def get_chats_for_user(supabase, user_id: str) -> list[dict]:
         .order("created_at", desc=True)
         .execute()
     )
-    return response.data or []
+    return response.data or[]
 
 
 # ── Messages ──────────────────────────────────────────────────────────────────
@@ -139,7 +142,7 @@ def get_messages_for_chat(supabase, chat_id: str) -> list[dict]:
         .order("sequence", desc=False)
         .execute()
     )
-    return response.data or []
+    return response.data or[]
 
 
 def get_next_sequence(supabase, chat_id: str) -> int:
@@ -287,8 +290,6 @@ def increment_ideas_used_today(supabase, user_id: str) -> None:
     Increments ideas_used_today by 1 for the given user.
     Uses rpc if available; falls back to a read-then-write approach.
     """
-    # Read current value first (Supabase JS SDK supports .increment() but
-    # the Python SDK does not expose it natively — use a safe read+write).
     response = (
         supabase.table("user_profile")
         .select("ideas_used_today")
@@ -307,7 +308,8 @@ def increment_ideas_used_today(supabase, user_id: str) -> None:
 def get_user_profile(supabase, user_id: str) -> Optional[dict]:
     response = (
         supabase.table("user_profile")
-        .select("niche, tone, style, goal, preferred_language")
+        # ── HERE IS THE FIX: Added "plan" to the select query ──
+        .select("niche, tone, style, goal, preferred_language, plan")
         .eq("id", user_id)
         .single()
         .execute()

@@ -30,3 +30,9 @@ button,
 input {
   font: inherit;
 }
+
+@media print {
+  aside {
+    display: none !important;
+  }
+}
