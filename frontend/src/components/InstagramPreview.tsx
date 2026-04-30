@@ -59,6 +59,18 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
   const isDragging = useRef(false);
   const lastPos = useRef({ x: 0, y: 0 });
 
+  // ─── PREMIUM TOAST STATE ───
+  const [upgradeToast, setUpgradeToast] = useState<{ show: boolean; message: string }>({ show: false, message: "" });
+  const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const showPremiumToast = (message: string) => {
+    setUpgradeToast({ show: true, message });
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => {
+      setUpgradeToast({ show: false, message: "" });
+    }, 5000);
+  };
+
   const CONTAINER_W = 270;
   const CONTAINER_H = 480;
 
@@ -176,10 +188,10 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
   // ─── 3. VIDEO UPLOAD HANDLER ───
   const handleVideoUploadClick = () => {
     if (!isPremium) {
-      navigate("/upgrade");
+      showPremiumToast("Video uploading is a Premium feature.");
       return;
     }
-    setShowVideoModal(true); // Explorer ki jagah ab modal khulega
+    setShowVideoModal(true); // 🟢 Direct file explorer ki jagah ab modal khulega
   };
 
   // NAYA FUNCTION: Library se purani video select karne ke liye
@@ -742,7 +754,13 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
                 </button>
               )}
               <button 
-                onClick={() => isPremium ? setShowMediaModal(true) : navigate("/upgrade")} 
+                onClick={() => {
+                  if (isPremium) {
+                    setShowMediaModal(true);
+                  } else {
+                    showPremiumToast("Custom cover images are available on Starter & Pro plans.");
+                  }
+                }}
                 className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all border ${post?.cover_image ? 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-500/30' : 'bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 text-slate-700 dark:text-zinc-300 border-transparent'}`}
               >
                 {post?.cover_image ? "✅ Cover Selected" : "Select Cover Image"}
@@ -783,6 +801,63 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
               {post?.caption || <span className="text-slate-400 italic text-sm">Caption not written yet.</span>}
             </p>
           </section>
+
+          <section className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-4 sm:p-6 rounded-2xl shadow-sm print:shadow-none print:border-none print:p-0">
+            <h3 className="text-[11px] sm:text-xs font-bold text-blue-500 uppercase tracking-wider mb-2 sm:mb-3 flex items-center gap-2">
+              <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500"></span>
+              Shooting Guide 🎥
+            </h3>
+            {plan === "free" ? (
+              <div className="relative mt-2">
+                <div className="blur-[3px] opacity-60 pointer-events-none select-none">
+                  <p className="text-sm font-semibold text-slate-800 dark:text-zinc-200">1. Camera Angle & Lighting:</p>
+                  <p className="text-sm text-slate-600 dark:text-zinc-400 mb-2">- Front-facing camera with natural daylight...</p>
+                  <p className="text-sm font-semibold text-slate-800 dark:text-zinc-200">2. B-Roll Suggestions:</p>
+                  <p className="text-sm text-slate-600 dark:text-zinc-400">- Show the workspace and hands typing...</p>
+                </div>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <button onClick={() => navigate("/upgrade")} className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-full shadow-md transition-all active:scale-95">
+                    Upgrade to Unlock 🎥
+                  </button>
+                </div>
+              </div>
+            ) : post?.shooting_guide ? (
+              <div className="text-slate-700 dark:text-zinc-300 text-sm sm:text-[14px] leading-relaxed whitespace-pre-wrap">
+                {post.shooting_guide}
+              </div>
+            ) : (
+              <p className="text-slate-400 italic text-sm">Shooting guide not generated yet.</p>
+            )}
+          </section>
+
+          <section className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-4 sm:p-6 rounded-2xl shadow-sm print:shadow-none print:border-none print:p-0">
+            <h3 className="text-[11px] sm:text-xs font-bold text-purple-500 uppercase tracking-wider mb-2 sm:mb-3 flex items-center gap-2">
+              <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-purple-500"></span>
+              Editing Guide ✂️
+            </h3>
+            {plan === "free" || plan === "starter" ? (
+              <div className="relative mt-2">
+                <div className="blur-[3px] opacity-60 pointer-events-none select-none">
+                  <p className="text-sm font-semibold text-slate-800 dark:text-zinc-200">1. Pacing & Cuts:</p>
+                  <p className="text-sm text-slate-600 dark:text-zinc-400 mb-2">- Fast cuts on the beat to keep retention high...</p>
+                  <p className="text-sm font-semibold text-slate-800 dark:text-zinc-200">2. Text Overlays:</p>
+                  <p className="text-sm text-slate-600 dark:text-zinc-400">- Pop-up captions using bold yellow colors...</p>
+                </div>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <button onClick={() => navigate("/upgrade")} className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-full shadow-md transition-all active:scale-95">
+                    Upgrade to Unlock ✂️
+                  </button>
+                </div>
+              </div>
+            ) : post?.editing_guide ? (
+              <div className="text-slate-700 dark:text-zinc-300 text-sm sm:text-[14px] leading-relaxed whitespace-pre-wrap">
+                {post.editing_guide}
+              </div>
+            ) : (
+              <p className="text-slate-400 italic text-sm">Editing guide not generated yet.</p>
+            )}
+          </section>
+    
         </div>
       </div>
 
@@ -1040,6 +1115,27 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
         <h2 className="text-xl font-bold text-indigo-600 mb-2">3. Caption & Hashtags</h2>
         <p className="text-base whitespace-pre-wrap leading-relaxed mb-6">{post?.caption || "N/A"}</p>
       </div>
+
+      {/* ── PREMIUM UPGRADE TOAST (5 SECONDS) ── */}
+      {upgradeToast.show && (
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[150] animate-in slide-in-from-bottom-5 fade-in duration-300">
+          <div className="flex items-center gap-3 bg-slate-900 dark:bg-zinc-800 border border-slate-700 dark:border-zinc-700 text-white px-4 py-3 sm:px-5 sm:py-3.5 rounded-full shadow-2xl">
+            <div className="w-8 h-8 bg-indigo-500/20 text-indigo-400 rounded-full flex items-center justify-center shrink-0">
+              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2-2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+            </div>
+            <span className="text-sm font-medium">{upgradeToast.message}</span>
+            <div className="w-px h-5 bg-slate-700 mx-1 shrink-0" />
+            <button
+              onClick={() => navigate("/upgrade")}
+              className="text-sm font-bold text-indigo-400 hover:text-indigo-300 active:scale-95 transition-all whitespace-nowrap"
+            >
+              Upgrade Now
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );

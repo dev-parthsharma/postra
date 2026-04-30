@@ -803,21 +803,40 @@ async def handle_get_chat(supabase, chat_id: str, user_id: str) -> dict:
     return {**chat, "stage": stage, "messages": messages}
 
 
-def _route_message_intent(history_text: str, user_message: str, language: str) -> dict:
-    prompt = f"""You are the routing brain for an Instagram content assistant.
-Determine the user's intent from their latest message.
+def _route_message_intent(
+    history_text: str, user_message: str, language: str, niche: str, tone: str, plan: str, 
+    hook_count: int, script_count: int, caption_count: int, max_gens: int
+) -> dict:
+    prompt = f"""You are the core "Brain" of Postra — an elite, sharp, and highly intelligent Instagram content creation SaaS.
+Your job is to understand the user's current intent based on the conversation history and their profile, and route them to the correct action.
 
-Categories:
-- "generate_hooks": Wants hooks, opening lines, or wants to modify previous hooks.
-- "generate_caption": Wants a caption, or wants to rewrite a caption.
+--- USER PROFILE AWARENESS ---
+- Niche: {niche}
+- Tone: {tone}
+- Language: {language} (If Hinglish, mix Hindi & English naturally like Indian creators)
+- Subscription Plan: {plan.upper()}
+
+--- POSTRA'S CURRENT PROGRESS & LIMITS ---
+Max generations allowed per step on this plan: {max_gens}
+- Hooks Generated: {hook_count} / {max_gens}
+- Script Generated: {script_count} / 1
+- Captions Generated: {caption_count} / {max_gens}
+
+--- CATEGORIES (Return one of these in "action") ---
+- "generate_hooks": Wants hooks, opening lines, or modifications to hooks.
 - "generate_script": Wants a video/reel script or dialogue.
-- "generate_editing_guide": Wants editing tips, text overlay ideas, or audio/music suggestions.
-- "generate_shooting_guide": Wants camera angles, lighting, or acting instructions.
-- "generate_other": Wants to generate/regenerate something else related to the post.
-- "chat": Casual greetings (hi, hello), agreements (ok, nice, thik hai, perfect), or thanks.
-- "unrelated": Questions completely outside Instagram/content creation (math, coding, general knowledge).
+- "generate_shooting_guide": Wants camera angles, lighting, acting instructions.
+- "generate_editing_guide": Wants editing tips, text overlays, sound design.
+- "generate_caption": Wants a caption or hashtags.
+- "generate_other": Wants to generate something else valid for Instagram.
+- "chat": Casual greetings, agreements, OR handling limit/premium errors.
+- "unrelated": Questions completely outside Instagram/content creation.
 
-Language rule: If action is 'chat' or 'unrelated', write the `reply` in {language}. If unrelated, politely steer them back to Instagram content.
+--- POSTRA'S CONVERSATIONAL RULES (For "chat" or "unrelated" replies) ---
+If the action is "chat" or "unrelated", you MUST write a response in the `reply` field acting as Postra:
+1. If they ask to generate something they have ALREADY reached the limit for (e.g. caption is {caption_count}/{max_gens}), strictly select "chat" and politely tell them they have already generated it or reached their limit. DO NOT offer to generate it again.
+2. If they ask for a premium feature locked on their '{plan.upper()}' plan, politely explain it's a premium feature and suggest upgrading.
+3. Keep replies short, punchy, and use max 1-2 emojis.
 
 Recent History:
 {history_text}
@@ -827,11 +846,11 @@ Latest User Message: "{user_message}"
 Return ONLY valid JSON format:
 {{
     "action": "<category>",
-    "reply": "<if chat or unrelated, write a friendly short reply here. Otherwise leave empty>"
+    "reply": "<if action is chat/unrelated, write Postra's smart response here. Else leave empty>"
 }}"""
     
     try:
-        raw = _call_llm([{"role": "user", "content": prompt}], max_tokens=300)
+        raw = _call_llm([{"role": "user", "content": prompt}], max_tokens=350)
         text = raw.strip()
         if text.startswith("```"):
             lines = text.split("\n")
@@ -859,13 +878,13 @@ def _generate_specialized_content(
             "Hook:\n"
             "[The exact hook the user previously selected]\n\n"
             "Body:\n"
-            "[Write a simple, raw, and powerful script. Focus on strong pacing and natural speaking rhythm using short sentences and line breaks. DO NOT use bracketed speaking instructions or pause markers like '[Speak excitedly, 1 sec pause]'. Just pure, high-retention dialogue.]\n\n"
+            "[Write a simple, raw, and powerful script. Focus on strong pacing and natural speaking rhythm using short sentences and line breaks. DO NOT use bracketed speaking instructions or pause markers.]\n\n"
             "CTA:\n"
             "[The final Call to Action line]\n\n"
             "Do NOT include visual cues, camera angles, or B-roll descriptions. Focus entirely on the vocal delivery format."
         ),
-        "generate_editing_guide": "Provide an editing guide (text overlays, pacing, cuts, sound effects).",
-        "generate_shooting_guide": "Provide a shooting guide (camera angles, lighting, B-roll, acting tips).",
+        "generate_editing_guide": "Provide a concise, practical editing guide tailored to the current script. Include suggestions for text overlays, pacing, cuts, and sound effects/music vibe. Format nicely with bullet points.",
+        "generate_shooting_guide": "Provide a concise, practical shooting guide tailored to the current script. Include suggestions for camera angles, lighting, B-roll shots to capture, and acting/delivery tips. Format nicely with bullet points.",
         "generate_other": "Fulfill the user's content request related to this post."
     }
     
@@ -921,6 +940,18 @@ async def handle_send_message(supabase, chat_id: str, user_id: str, content: str
 
     metadata = None
 
+    # ── CALCULATE LIMITS FIRST SO BRAIN KNOWS ──
+    hook_count = sum(1 for m in messages if m.get("metadata") and isinstance(m["metadata"], dict) and m["metadata"].get("type") == "hook_selection")
+    
+    all_script_msgs =[m for m in messages if m.get("metadata") and isinstance(m["metadata"], dict) and m["metadata"].get("type") == "editable_script"]
+    script_count = len(all_script_msgs)
+    locked_script_count = sum(1 for m in all_script_msgs if m["metadata"].get("is_locked"))
+    real_script_count = script_count - locked_script_count
+    
+    caption_count = sum(1 for m in messages if m.get("metadata") and isinstance(m["metadata"], dict) and m["metadata"].get("type") == "caption_selection")
+    max_generations = 3 if plan == "pro" else (2 if plan == "starter" else 1)
+
+    # ── ROUTING INTENTS ──
     if intent == "generate_hooks":
         action = "generate_hooks"
         reply_text = ""
@@ -930,24 +961,20 @@ async def handle_send_message(supabase, chat_id: str, user_id: str, content: str
     elif intent == "generate_caption":
         action = "generate_caption"
         reply_text = ""
+    elif intent == "generate_shooting_guide":
+        action = "generate_shooting_guide"
+        reply_text = ""
+    elif intent == "generate_editing_guide":
+        action = "generate_editing_guide"
+        reply_text = ""
     else:
-        route = _route_message_intent(history_text, content, language)
+        # NOW THE BRAIN KNOWS WHAT IS ALREADY GENERATED
+        route = _route_message_intent(history_text, content, language, niche, tone, plan, hook_count, real_script_count, caption_count, max_generations)
         action = route.get("action", "generate_other")
         reply_text = route.get("reply", "").strip()
 
-    # ── LIMITS ENFORCEMENT ──
-    hook_count = sum(1 for m in messages if m.get("metadata") and isinstance(m["metadata"], dict) and m["metadata"].get("type") == "hook_selection")
-    
-    all_script_msgs =[m for m in messages if m.get("metadata") and isinstance(m["metadata"], dict) and m["metadata"].get("type") == "editable_script"]
-    script_count = len(all_script_msgs)
-    locked_script_count = sum(1 for m in all_script_msgs if m["metadata"].get("is_locked"))
-    real_script_count = script_count - locked_script_count
-    
-    caption_count = sum(1 for m in messages if m.get("metadata") and isinstance(m["metadata"], dict) and m["metadata"].get("type") == "caption_selection")
-    
-    max_generations = 3 if plan == "pro" else (2 if plan == "starter" else 1)
-
-    if action in ["generate_hooks", "generate_hooks_structured"]:
+    # ── HARD LIMIT ENFORCEMENT (Failsafe) ──
+    if action in["generate_hooks", "generate_hooks_structured"]:
         if script_count >= 1:
             action = "blocked_hook_post_script" 
         elif hook_count >= max_generations:
@@ -960,8 +987,13 @@ async def handle_send_message(supabase, chat_id: str, user_id: str, content: str
     elif action in["generate_caption", "generate_caption_structured"]:
         if caption_count >= max_generations:
             action = "blocked_caption"
+    elif action == "generate_shooting_guide" and plan == "free":
+        action = "blocked_shooting_guide"
+    elif action == "generate_editing_guide" and plan in["free", "starter"]:
+        action = "blocked_editing_guide"
 
     # ── ACTION EXECUTION ──
+    
     if action == "blocked_hook_post_script":
         ai_reply_text = "You cannot generate new hooks because the script has already been generated. Please edit the script directly." if language != "hinglish" else "Script pehle hi generate ho chuki hai, naye hooks generate nahi kiye ja sakte. Existing script edit karein."
         metadata = {"limitReached": "hook_post_script"}
@@ -978,7 +1010,13 @@ async def handle_send_message(supabase, chat_id: str, user_id: str, content: str
         ai_reply_text = "You have already reached the caption generation limit for your plan. Please select a caption from the options provided above." if language != "hinglish" else "Caption generation ki limit poori ho gayi hai. Upar diye gaye options mein se select karein."
         metadata = {"limitReached": "caption"}
 
-    elif action in["chat", "unrelated"] and reply_text:
+    elif action == "blocked_shooting_guide":
+        ai_reply_text = "Shooting guides are an exclusive feature for Starter and Pro plans! 🎥 Upgrade your plan to get step-by-step camera & lighting guidance." if language != "hinglish" else "Shooting guides sirf Starter aur Pro plan ka premium feature hai! 🎥 Camera angles aur lighting tips ke liye apna plan upgrade karein."
+
+    elif action == "blocked_editing_guide":
+        ai_reply_text = "Editing guides are exclusively available on the Pro plan! ✂️ Upgrade your plan to unlock premium text overlay, pacing, and sound design strategies." if language != "hinglish" else "Editing guides sirf Pro plan mein available hain! ✂️ Premium editing, text overlays, aur sound design tips ke liye apna plan upgrade karein."
+
+    elif action in ["chat", "unrelated"] and reply_text:
         ai_reply_text = reply_text
 
     elif action in["generate_hooks", "generate_hooks_structured"]:
@@ -1007,66 +1045,98 @@ Rules:
             metadata = {"type": "hook_selection", "options": parsed.get("hooks",[])}
             ai_reply_text = "Here are 3 solid hook angles. Pick the one that hits hardest: 🔥" if language != "hinglish" else "Ye rahe 3 solid hook angles. Jo sabse best lage use select karo: 🔥"
         except Exception as e:
-            print("Failed structured hooks:", e)
             ai_reply_text = "Sorry, I couldn't generate the hooks properly. Try again."
 
     elif action == "generate_script":
         if plan == "free":
-            # FAST BYPASS: Fake the generation for Free users, saving API costs.
             selected_hook = chat["title"]
             for m in reversed(messages):
-                if m["source"] == "user":
-                    if "I want to go with this hook:" in m["content"]:
-                        selected_hook = m["content"].split("\n\n")[-1].strip()
-                        break
-                    elif "Main is hook ke sath jaunga:" in m["content"]:
-                        selected_hook = m["content"].split("\n\n")[-1].strip()
-                        break
+                if m["source"] == "user" and ("I want to go with this hook:" in m["content"] or "Main is hook ke sath jaunga:" in m["content"]):
+                    selected_hook = m["content"].split("\n\n")[-1].strip()
+                    break
             
             raw_script = f"Hook:\n{selected_hook}\n\nBody:\n[LOCKED]\n\nCTA:\n[LOCKED]"
-            
-            # Save the locked draft
+            from app.integrations.queries import upsert_post
             upsert_post(supabase, user_id, chat_id, idea_id=chat["idea_id"], script=raw_script, status="draft")
             
-            ai_reply_text = "I've structured your script, but the full body is locked on the Free plan! 🔒 Upgrade to unlock and edit it." if language != "hinglish" else "Script structure ready hai par Free plan mein body locked hai! 🔒 Pura script dekhne ke liye upgrade karein."
-            
-            metadata = {
-                "type": "editable_script", 
-                "script_text": raw_script, 
-                "is_locked": True
-            }
+            # SMART CTA DECISION
+            if caption_count >= max_generations:
+                ai_reply_text = "I've structured your script, but the full body is locked on the Free plan! 🔒 Upgrade to unlock it." if language != "hinglish" else "Script structure ready hai par Free plan mein body locked hai! 🔒 Pura script dekhne ke liye upgrade karein."
+                metadata = { "type": "editable_script", "script_text": raw_script, "is_locked": True }
+            else:
+                ai_reply_text = "I've structured your script, but the full body is locked on the Free plan! 🔒 Upgrade to unlock it, or want me to write a catchy caption?" if language != "hinglish" else "Script structure ready hai par Free plan mein body locked hai! 🔒 Upgrade karke unlock karein, ya ab ek solid caption likhein?"
+                metadata = { "type": "editable_script", "script_text": raw_script, "is_locked": True, "cta": "generate_caption", "cta_text": "Write Caption ✍️" }
         else:
             try:
                 raw_script = _generate_specialized_content(action=action, idea_title=chat["title"], user_message=content, history_text=history_text, niche=niche, tone=tone, language=language)
-
+                from app.integrations.queries import upsert_post
                 upsert_post(supabase, user_id, chat_id, idea_id=chat["idea_id"], script=raw_script, status="draft")
 
-                ai_reply_text = "Script is ready and auto-saved to your drafts! 🎬 Want me to write a catchy caption?" if language != "hinglish" else "Script ready hai aur drafts mein auto-save ho gayi! 🎬 Ab ek solid caption likhein?"
-                metadata = {"type": "editable_script", "script_text": raw_script, "cta": "generate_caption", "cta_text": "Write Caption ✍️"}
-            
+                # SMART CTA DECISION
+                if plan in ["starter", "pro"]:
+                    ai_reply_text = "Script is ready and auto-saved to your drafts! 🎬 Want me to generate a Shooting Guide for this?" if language != "hinglish" else "Script ready hai aur drafts mein auto-save ho gayi! 🎬 Kya main iska Shooting Guide banaun?"
+                    metadata = {"type": "editable_script", "script_text": raw_script, "cta": "generate_shooting_guide", "cta_text": "Get Shooting Guide 🎥"}
+                else:
+                    if caption_count >= max_generations:
+                        ai_reply_text = "Script is ready and auto-saved to your drafts! 🎬" if language != "hinglish" else "Script ready hai aur drafts mein auto-save ho gayi! 🎬"
+                        metadata = {"type": "editable_script", "script_text": raw_script}
+                    else:
+                        ai_reply_text = "Script is ready and auto-saved to your drafts! 🎬 Want me to write a catchy caption?" if language != "hinglish" else "Script ready hai aur drafts mein auto-save ho gayi! 🎬 Ab ek solid caption likhein?"
+                        metadata = {"type": "editable_script", "script_text": raw_script, "cta": "generate_caption", "cta_text": "Write Caption ✍️"}
             except Exception as e:
-                print(f"[Generation Error] Script failed: {e}")
                 ai_reply_text = "Mujhe abhi kuch technical issue aa raha hai, please try again. 🙏" if language == "hinglish" else "I'm facing a technical issue right now, please try again in a moment. 🙏"
 
-    # 🟢 YAHAN SE DUPLICATE HOOK WALA BLOCK HATA DIYA HAI 🟢
+    elif action == "generate_shooting_guide":
+        try:
+            raw_guide = _generate_specialized_content(action=action, idea_title=chat["title"], user_message=content, history_text=history_text, niche=niche, tone=tone, language=language)
+            supabase.table("posts").update({"shooting_guide": raw_guide}).eq("chat_id", chat_id).execute()
 
-    elif action in["generate_caption", "generate_caption_structured"]:
+            ai_reply_text = "Here is your detailed Shooting Guide! 🎥" if language != "hinglish" else "Ye raha aapka detailed Shooting Guide! 🎥"
+            metadata = {"type": "shooting_guide", "guide_text": raw_guide}
+
+            if plan == "pro":
+                ai_reply_text += ("\n\nWant me to generate an Editing Guide?" if language != "hinglish" else "\n\nKya main ab Editing Guide banaun?")
+                metadata["cta"] = "generate_editing_guide"
+                metadata["cta_text"] = "Get Editing Guide ✂️"
+            else:
+                if caption_count < max_generations:
+                    ai_reply_text += ("\n\nWant me to write a catchy caption?" if language != "hinglish" else "\n\nAb ek solid caption likhein?")
+                    metadata["cta"] = "generate_caption"
+                    metadata["cta_text"] = "Write Caption ✍️"
+
+        except Exception as e:
+            ai_reply_text = "Mujhe shooting guide banane mein technical issue aa raha hai, please try again." if language == "hinglish" else "I'm facing a technical issue generating the shooting guide, please try again."
+
+    elif action == "generate_editing_guide":
+        try:
+            raw_guide = _generate_specialized_content(action=action, idea_title=chat["title"], user_message=content, history_text=history_text, niche=niche, tone=tone, language=language)
+            supabase.table("posts").update({"editing_guide": raw_guide}).eq("chat_id", chat_id).execute()
+
+            ai_reply_text = "Here is your precise Editing Guide! ✂️" if language != "hinglish" else "Ye raha aapka precise Editing Guide! ✂️"
+            metadata = {"type": "editing_guide", "guide_text": raw_guide}
+
+            if caption_count < max_generations:
+                ai_reply_text += ("\n\nWant me to write a catchy caption?" if language != "hinglish" else "\n\nAb ek solid caption likhein?")
+                metadata["cta"] = "generate_caption"
+                metadata["cta_text"] = "Write Caption ✍️"
+                
+        except Exception as e:
+            ai_reply_text = "Mujhe editing guide banane mein technical issue aa raha hai, please try again." if language == "hinglish" else "I'm facing a technical issue generating the editing guide, please try again."
+
+    elif action in ["generate_caption", "generate_caption_structured"]:
         prompt = f"""You are an elite Instagram content strategist.
 Niche: {niche} | Tone: {tone} | Post Idea: "{chat['title']}"
 Recent conversation context:
 {history_text}
 User's current request: "{content}"
-
-Task: Generate exactly 3 engaging Instagram captions based on the user's request and the script.
+Task: Generate exactly 3 engaging Instagram captions based on the user's request.
 Rules:
-- The FIRST caption MUST be Medium length (3-4 lines) + relevant hashtags. (This is the highly-recommended version).
-- The SECOND caption MUST be Short length (1-2 lines) + relevant hashtags.
-- The THIRD caption MUST be Long length (6-7 lines) + relevant hashtags.
-- DO NOT add labels like "Medium:", "Short:", "Caption 1:" inside the text itself. Just output the raw caption text.
-- STRICT RULE: The CAPTION TEXT ITSELF MUST ALWAYS BE PURE ENGLISH, because English captions get better reach.
-- Return ONLY valid JSON format. Do not use markdown blocks.
+- The FIRST caption MUST be Medium length.
+- The SECOND caption MUST be Short length.
+- The THIRD caption MUST be Long length.
+- STRICT RULE: The CAPTION TEXT ITSELF MUST ALWAYS BE PURE ENGLISH.
+- Return ONLY valid JSON format.
 {{ "captions":["medium caption text...", "short caption text...", "long caption text..."] }}"""
-        
         from app.services.llm_service import generate_content_gemini_first
         try:
             raw = generate_content_gemini_first(prompt).strip()
@@ -1077,19 +1147,16 @@ Rules:
                 raw = "\n".join(lines).strip()
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match: raw = match.group()
-            
             parsed = json.loads(raw)
             metadata = {"type": "caption_selection", "options": parsed.get("captions",[])}
-            ai_reply_text = "Here are 3 caption options (Medium, Short, and Detailed). Pick the one that fits best: ✨" if language != "hinglish" else "Ye rahe 3 solid captions (Medium, Short, aur Detailed). Jo sabse sahi lage use select karo: ✨"
+            ai_reply_text = "Here are 3 caption options. Pick the one that fits best: ✨" if language != "hinglish" else "Ye rahe 3 solid captions. Jo sabse sahi lage use select karo: ✨"
         except Exception as e:
-            print("Failed structured captions:", e)
             ai_reply_text = "Sorry, I couldn't generate the captions properly. Try again." if language != "hinglish" else "Sorry, caption generate karne mein issue aaya. Phir se try karein."
 
     else:
         try:
             ai_reply_text = _generate_specialized_content(action=action, idea_title=chat["title"], user_message=content, history_text=history_text, niche=niche, tone=tone, language=language)
         except Exception as e:
-            print(f"[Generation Error] Specialized generation failed: {e}")
             ai_reply_text = "Mujhe abhi kuch technical issue aa raha hai, please try again. 🙏" if language == "hinglish" else "I'm facing a technical issue right now, please try again. 🙏"
 
     seq2 = get_next_sequence(supabase, chat_id)
@@ -1202,7 +1269,6 @@ async def handle_unlock_script_content(supabase, chat_id: str, user_id: str) -> 
         language=profile.get("language", "english")
     )
 
-    # 🟢 MAIN FIX: Find the old locked message in DB and UNLOCK IT permanently!
     locked_msg = None
     for m in reversed(messages):
         if m["source"] == "assistant" and m.get("metadata") and m["metadata"].get("is_locked"):
@@ -1212,20 +1278,25 @@ async def handle_unlock_script_content(supabase, chat_id: str, user_id: str) -> 
     if locked_msg:
         new_metadata = dict(locked_msg["metadata"])
         new_metadata["script_text"] = raw_script
-        new_metadata["is_locked"] = False # Hamesha ke liye unlock ho gaya
-        new_metadata["cta"] = "generate_caption"
-        new_metadata["cta_text"] = "Write Caption ✍️"
+        new_metadata["is_locked"] = False 
         
         language = profile.get("language", "english")
-        new_content = "Script unlocked and ready! 🎬 Want me to write a catchy caption?" if language != "hinglish" else "Script unlock ho gayi hai! 🎬 Ab ek solid caption likhein?"
+        
+        # 🟢 PLAN-BASED CTA (Unlock hone ke baad) 🟢
+        if plan in ["starter", "pro"]:
+            new_metadata["cta"] = "generate_shooting_guide"
+            new_metadata["cta_text"] = "Get Shooting Guide 🎥"
+            new_content = "Script unlocked and ready! 🎬 Want me to generate a Shooting Guide?" if language != "hinglish" else "Script unlock ho gayi hai! 🎬 Kya iska Shooting Guide banaun?"
+        else:
+            new_metadata["cta"] = "generate_caption"
+            new_metadata["cta_text"] = "Write Caption ✍️"
+            new_content = "Script unlocked and ready! 🎬 Want me to write a catchy caption?" if language != "hinglish" else "Script unlock ho gayi hai! 🎬 Ab ek solid caption likhein?"
 
-        # Chat bubble update in DB
         supabase.table("messages").update({
             "content": new_content,
             "metadata": new_metadata
         }).eq("id", locked_msg["id"]).execute()
 
-    # 🟢 MAIN FIX: Update the actual Draft Post so it appears on Preview/Drafts page!
     from app.integrations.queries import upsert_post
     upsert_post(supabase, user_id, chat_id, idea_id=chat["idea_id"], script=raw_script, status="draft")
 

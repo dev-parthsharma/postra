@@ -83,6 +83,32 @@ function TypewriterText({
   return <p className="whitespace-pre-wrap">{displayed}</p>;
 }
 
+// ── Expandable Guide Box ───────────────────────────────────────────────────
+function ExpandableGuide({ title, icon, content, colorClass }: { title: string, icon: string, content: string, colorClass: string }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className={`mt-3 w-full max-w-sm rounded-2xl border bg-slate-50 dark:bg-zinc-800/50 shadow-sm ${colorClass}`}>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between p-3.5 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+      >
+        <div className="flex items-center gap-2 text-sm font-bold">
+          <span>{icon}</span>
+          <span>{title}</span>
+        </div>
+        <svg className={`w-4 h-4 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {expanded && (
+        <div className="p-4 pt-2 border-t border-black/5 dark:border-white/5 text-[13.5px] leading-relaxed text-slate-700 dark:text-zinc-300 whitespace-pre-wrap">
+          {content}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Chat Helpers ─────────────────────────────────────────────────────────────
 function CopyButton({ text }: { text: string }) {
   const[copied, setCopied] = useState(false);
@@ -488,6 +514,25 @@ function MessageBubble({
             </div>
           </div>
         )}
+
+        {/* ── EXPANDABLE SHOOTING & EDITING GUIDES ── */}
+        {!isUser && meta.type === "shooting_guide" && meta.guide_text && (
+          <ExpandableGuide
+            title="Shooting Guide"
+            icon="🎥"
+            content={meta.guide_text}
+            colorClass="border-blue-200 dark:border-blue-500/30 text-blue-700 dark:text-blue-400"
+          />
+        )}
+        
+        {!isUser && meta.type === "editing_guide" && meta.guide_text && (
+          <ExpandableGuide
+            title="Editing Guide"
+            icon="✂️"
+            content={meta.guide_text}
+            colorClass="border-purple-200 dark:border-purple-500/30 text-purple-700 dark:text-purple-400"
+          />
+        )}
       </div>
     </div>
   );
@@ -517,6 +562,15 @@ export default function Chat() {
   
   const { state, bottomRef, setInputText, handleSend, handleUpdateIdeaData, handleSaveSelection } = useChat(chatId ?? "");
   const { chat, messages, inputText, loading, sending } = state;
+
+  // 🟢 TYPEWRITER FIX LOGIC 🟢
+  const initialMsgCount = useRef<number | null>(null);
+  useEffect(() => {
+    // Jab chat pehli baar load ho jaye, tab count save kar lo
+    if (!loading && initialMsgCount.current === null) {
+      initialMsgCount.current = messages.length;
+    }
+  }, [loading, messages.length]);
 
   // ── Plan Fetching ──
   const [plan, setPlan] = useState<string>("free");
@@ -873,20 +927,19 @@ export default function Chat() {
           <div className="flex-1 overflow-y-auto">
             <div className="max-w-[700px] mx-auto px-4 sm:px-6 py-8 space-y-6">
               {messages.map((msg, idx) => {
-                // 🟢 NEW FIX: Agar message abhi local me unlock hua hai, toh usko instantly unlocked dikhao
                 const isLocallyUnlocked = unlockedScriptsLocal[msg.id];
                 const displayMsg = isLocallyUnlocked 
-                  ? { 
-                      ...msg, 
-                      metadata: { ...msg.metadata, is_locked: false, script_text: unlockedScriptsLocal[msg.id] } 
-                    } 
+                  ? { ...msg, metadata: { ...msg.metadata, is_locked: false, script_text: unlockedScriptsLocal[msg.id] } } 
                   : msg;
+
+                // 🟢 UPDATED CONDITION: Sirf wahi naya hai jo initial load ke baad aaya hai
+                const isNewInSession = initialMsgCount.current !== null && idx >= initialMsgCount.current;
 
                 return (
                   <div key={displayMsg.id}>
                     <MessageBubble
                       message={displayMsg}
-                      isLatestAiMsg={idx === messages.length - 1 && !sending && displayMsg.source === "assistant"}
+                      isLatestAiMsg={isNewInSession && idx === messages.length - 1 && !sending && displayMsg.source === "assistant"}
                       plan={plan}
                       onUpgrade={() => navigate("/upgrade")}
                       onUnlockAndEdit={handleUnlockAndEdit}
