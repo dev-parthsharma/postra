@@ -46,6 +46,7 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
 
   // ─── MEDIA PICKER MODAL STATES ───
   const[showMediaModal, setShowMediaModal] = useState(false);
+  const[showVideoModal, setShowVideoModal] = useState(false);
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [mediaLoading, setMediaLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -158,23 +159,19 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
 
   // ─── 2. LOAD MEDIA LIBRARY WHEN MODAL OPENS ───
   useEffect(() => {
-    if (showMediaModal) {
+    if (showMediaModal || showVideoModal) { // Dono me se koi bhi modal open ho to load kare
       const fetchMedia = async () => {
         setMediaLoading(true);
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-          const { data } = await supabase
-            .from("media")
-            .select("*")
-            .eq("user_id", user.id)
-            .order("created_at", { ascending: false });
+          const { data } = await supabase.from("media").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
           if (data) setMediaItems(data);
         }
         setMediaLoading(false);
       };
       fetchMedia();
     }
-  }, [showMediaModal]);
+  }, [showMediaModal, showVideoModal]);
 
   // ─── 3. VIDEO UPLOAD HANDLER ───
   const handleVideoUploadClick = () => {
@@ -182,7 +179,38 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
       navigate("/upgrade");
       return;
     }
-    videoInputRef.current?.click();
+    setShowVideoModal(true); // Explorer ki jagah ab modal khulega
+  };
+
+  // NAYA FUNCTION: Library se purani video select karne ke liye
+  const handleVideoSelect = async (item: MediaItem) => {
+    if (!post || !post.id) return;
+    if (!item.type.includes("video")) {
+      alert("Please select a video file.");
+      return;
+    }
+
+    setPost((prev) => prev ? { ...prev, video_url: item.file_url } : null);
+    setShowVideoModal(false);
+    setIsPlaying(false);
+
+    try {
+      // Puraane video link ko hatayein taaki 1 hi video connect rahe
+      const { data: allLinks } = await supabase.from("post_media").select("id, media_id").eq("post_id", post.id);
+      if (allLinks && allLinks.length > 0) {
+        const mediaIds = allLinks.map(l => l.media_id);
+        const { data: mediaRows } = await supabase.from("media").select("id, type").in("id", mediaIds);
+        const videoMediaIds = mediaRows?.filter(m => m.type.includes("video")).map(m => m.id) ||[];
+        const linkIdsToDelete = allLinks.filter(l => videoMediaIds.includes(l.media_id)).map(l => l.id);
+        if (linkIdsToDelete.length > 0) {
+          await supabase.from("post_media").delete().in("id", linkIdsToDelete);
+        }
+      }
+      // Nayi video link karein
+      await supabase.from("post_media").insert({ post_id: post.id, media_id: item.id });
+    } catch (err: any) {
+      console.error("Link failed:", err);
+    }
   };
 
   const handleVideoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -226,6 +254,7 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
       // Optimistic Update
       setPost((prev) => prev ? { ...prev, video_url: publicUrl } : null);
       setIsPlaying(false);
+      setShowVideoModal(false);
 
       // Delete old video link to enforce 1 video per post
       const { data: allLinks } = await supabase
@@ -623,8 +652,8 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
                     </button>
                     
                     <button 
-                      onClick={handleVideoUploadClick} 
-                      className="absolute top-6 left-1/2 -translate-x-1/2 px-4 py-2 bg-black/50 backdrop-blur-md text-white text-[11px] font-bold rounded-full opacity-0 group-hover/overlay:opacity-100 transition-opacity border border-white/20 whitespace-nowrap"
+                      onClick={(e) => { e.stopPropagation(); handleVideoUploadClick(); }} 
+                      className="absolute top-4 right-4 sm:top-6 sm:left-1/2 sm:-translate-x-1/2 px-3 py-1.5 sm:px-4 sm:py-2 bg-black/60 sm:bg-black/50 backdrop-blur-md text-white text-[10px] sm:text-[11px] font-bold rounded-full opacity-100 sm:opacity-0 group-hover/overlay:opacity-100 transition-opacity border border-white/20 whitespace-nowrap z-50"
                     >
                       Change Video
                     </button>
@@ -756,6 +785,72 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
           </section>
         </div>
       </div>
+
+      {/* ── VIDEO LIBRARY PICKER MODAL ── */}
+      {showVideoModal && (
+        <div className="absolute inset-0 z-[100] bg-slate-50 dark:bg-zinc-950 overflow-y-auto animate-in fade-in duration-200 flex flex-col min-h-full">
+          <div className="p-6 md:p-8 max-w-6xl mx-auto w-full space-y-6 relative">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 min-h-[60px] pb-4 border-b border-slate-200 dark:border-zinc-800">
+              <div>
+                <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Select Reel Video</h1>
+                <p className="text-sm text-slate-500 dark:text-zinc-400 mt-1">
+                  Choose a video from your library or upload a new one.
+                </p>
+              </div>
+              
+              <div className="flex items-center gap-3 w-full sm:w-auto">
+                {/* Naya upload button jo File Explorer kholega */}
+                <button
+                  onClick={() => videoInputRef.current?.click()}
+                  disabled={videoUploading}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 dark:bg-white hover:bg-slate-800 dark:hover:bg-slate-100 text-white dark:text-slate-900 rounded-xl text-sm font-semibold transition-all shadow-sm disabled:opacity-50"
+                >
+                  {videoUploading ? <Spinner size={16} /> : (
+                    <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                  )}
+                  {videoUploading ? "Uploading..." : "Upload New Video"}
+                </button>
+
+                {/* Close Button */}
+                <button onClick={() => setShowVideoModal(false)} className="ml-2 p-2.5 bg-slate-200 dark:bg-zinc-800 hover:bg-slate-300 dark:hover:bg-zinc-700 rounded-xl text-slate-700 dark:text-zinc-300 transition-colors">
+                  <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Video Grid */}
+            {mediaLoading ? (
+               <div className="flex h-[40vh] items-center justify-center"><Spinner size={32} /></div>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                {mediaItems.filter(item => item.type.includes("video")).length === 0 ? (
+                  <div className="col-span-full border-2 border-dashed border-slate-200 dark:border-zinc-800 rounded-2xl p-12 text-center">
+                    <p className="text-slate-500 dark:text-zinc-400 text-sm">No videos uploaded yet.</p>
+                  </div>
+                ) : (
+                  mediaItems.filter(item => item.type.includes("video")).map((item) => (
+                    <div 
+                      key={item.id} 
+                      onClick={() => handleVideoSelect(item)}
+                      className="group relative rounded-2xl overflow-hidden aspect-[9/16] border-2 cursor-pointer border-slate-200 dark:border-zinc-700 hover:shadow-md hover:border-indigo-400 transition-all bg-black"
+                    >
+                      <video src={item.file_url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/30">
+                         <div className="bg-indigo-600 text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg transform translate-y-2 group-hover:translate-y-0 transition-all">
+                           Select Reel
+                         </div>
+                      </div>
+                      <div className="absolute bottom-2 right-2 bg-black/60 px-2 py-1 rounded text-[10px] text-white backdrop-blur-sm">
+                        {(item.file_size / (1024 * 1024)).toFixed(1)} MB
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── MEDIA LIBRARY PICKER MODAL ── */}
       {showMediaModal && (
