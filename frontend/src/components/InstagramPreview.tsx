@@ -61,7 +61,7 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
 
   // ─── PREMIUM TOAST STATE ───
   const [upgradeToast, setUpgradeToast] = useState<{ show: boolean; message: string }>({ show: false, message: "" });
-  const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showPremiumToast = (message: string) => {
     setUpgradeToast({ show: true, message });

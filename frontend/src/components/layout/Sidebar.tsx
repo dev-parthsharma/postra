@@ -106,7 +106,8 @@ const bottomItems: NavItem[] = [
 
 function InstagramStrip({ userId }: { userId: string | undefined }) {
   const [username, setUsername] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
+  const[ready, setReady] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
   useEffect(() => {
     if (!userId) { setReady(true); return; }
@@ -114,26 +115,93 @@ function InstagramStrip({ userId }: { userId: string | undefined }) {
       .from("instagram_connections")
       .select("instagram_username")
       .eq("user_id", userId)
-      .maybeSingle()        // returns null (not 406) when no row exists
+      .maybeSingle()
       .then(({ data }) => {
         setUsername(data?.instagram_username ?? null);
         setReady(true);
       });
-  }, [userId]);             // only re-runs when userId changes (i.e. once)
+  }, [userId]);
 
-  if (!ready) return null;  // hidden until resolved — no spinner flash
+  const handleConnect = () => {
+    if (username) return; 
+    
+    if (!window.FB) {
+      alert("Facebook SDK is still loading. Please try again in a few seconds.");
+      return;
+    }
+
+    setConnecting(true);
+
+    // 🟢 FIX: Normal function pass ki hai FB SDK ko
+    window.FB.login(
+      function (response: any) {
+        if (response.authResponse) {
+          const fbToken = response.authResponse.accessToken;
+          
+          // 🟢 FIX: Async logic ko ek andar (inner) function mein daal diya
+          const processLogin = async () => {
+            try {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (!session) throw new Error("User session expired. Please log in again.");
+
+              const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+
+              const res = await fetch(`${API_URL}/api/integrations/instagram/connect`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${session.access_token}`,
+                },
+                body: JSON.stringify({ fb_access_token: fbToken }),
+              });
+
+              const data = await res.json();
+
+              if (!res.ok) {
+                throw new Error(data.detail || "Failed to connect Instagram");
+              }
+
+              setUsername(data.username);
+              
+            } catch (err: any) {
+              console.error(err);
+              alert(`Error: ${err.message}`);
+            } finally {
+              setConnecting(false);
+            }
+          };
+
+          // Inner function ko call kar diya
+          processLogin();
+
+        } else {
+          console.log("User cancelled login or did not fully authorize.");
+          setConnecting(false); 
+        }
+      },
+      {
+        // 🟢 Permissions required for auto-publishing
+        // scope: "pages_show_list,instagram_basic,pages_read_engagement,instagram_content_publish,pages_manage_posts",
+        scope: "pages_show_list,pages_manage_posts,pages_read_engagement,business_management,instagram_basic,instagram_content_publish",
+      }
+    );
+  };
+
+  if (!ready) return null;
 
   return (
     <div className="mx-3 mb-1">
       <div
-        className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium border select-none ${
+        onClick={handleConnect}
+        style={{ cursor: username ? "default" : "pointer" }}
+        className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium border select-none transition-all ${
           username
             ? "bg-rose-50 dark:bg-rose-500/[0.07] text-rose-600 dark:text-rose-400 border-rose-100 dark:border-rose-500/15"
-            : "bg-slate-50 dark:bg-white/[0.04] text-slate-400 dark:text-slate-500 border-slate-100 dark:border-white/[0.06]"
+            : "bg-slate-50 dark:bg-white/[0.04] text-slate-400 dark:text-slate-500 border-slate-100 dark:border-white/[0.06] hover:bg-slate-100 dark:hover:bg-white/[0.08]"
         }`}
       >
         <span
-          className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0"
+          className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 ${connecting ? 'animate-pulse' : ''}`}
           style={
             username
               ? { background: "linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888)" }
@@ -147,16 +215,15 @@ function InstagramStrip({ userId }: { userId: string | undefined }) {
         {username ? (
           <>
             <span className="flex-1 truncate">@{username}</span>
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" title="Connected" />
           </>
         ) : (
-          <span className="flex-1">Connect Instagram</span>
+          <span className="flex-1">{connecting ? "Connecting..." : "Connect Instagram"}</span>
         )}
       </div>
     </div>
   );
 }
-
 function PlanStrip({ plan, onUpgrade }: { plan: string; onUpgrade: () => void }) {
   const label = plan.charAt(0).toUpperCase() + plan.slice(1).toLowerCase();
   const isFree = plan.toLowerCase() === "free";

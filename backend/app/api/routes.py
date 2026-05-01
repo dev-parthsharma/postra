@@ -1,8 +1,10 @@
 # backend/app/api/routes.py
 
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from pydantic import BaseModel, Field
 from typing import Optional
+import httpx
+import os
 
 from app.integrations.queries import (
     fetch_user_count,
@@ -83,6 +85,9 @@ class SaveSelectionRequest(BaseModel):
 class EditScriptRequest(BaseModel):
     current_script: str = Field(..., min_length=1)
     prompt: str = Field(..., min_length=1, max_length=1000)
+
+class IGConnectRequest(BaseModel):
+    fb_access_token: str
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -407,3 +412,85 @@ async def unlock_script_endpoint(
     except Exception as e:
         print("UNLOCK SCRIPT ERROR:", str(e))
         raise HTTPException(status_code=502, detail=str(e))
+    
+@router.post("/integrations/instagram/connect")
+async def connect_instagram(req: IGConnectRequest, request: Request):
+    # 1. Verify User from Supabase
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="Missing auth token")
+    
+    token = auth_header.replace("Bearer ", "")
+    supabase = get_supabase_client()
+    
+    try:
+        user_resp = supabase.auth.get_user(token)
+        # PYLANCE FIX: Safely check if user object exists before calling .id
+        if not user_resp or not user_resp.user:
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
+            
+        user_id = user_resp.user.id
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
+
+    fb_token = req.fb_access_token
+    APP_ID = os.getenv("FB_APP_ID")
+    APP_SECRET = os.getenv("FB_APP_SECRET")
+    
+    async with httpx.AsyncClient() as client:
+        exchange_url = f"https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id={APP_ID}&client_secret={APP_SECRET}&fb_exchange_token={fb_token}"
+        exchange_res = await client.get(exchange_url)
+        token_data = exchange_res.json()
+
+        long_lived_token = exchange_res.json().get("access_token")
+        if not long_lived_token:
+            raise HTTPException(status_code=400, detail="Failed to get long-lived token")
+
+        pages_resp = await client.get(f"https://graph.facebook.com/v19.0/me/accounts?access_token={long_lived_token}")
+        pages_data = pages_resp.json()
+        print("DEBUG PAGES DATA:", pages_data)
+
+        if "data" not in pages_data or not pages_data["data"]:
+            raise HTTPException(status_code=400, detail="No Facebook Pages found.")
+
+        ig_account_id = None
+        
+        # Loop through pages to find the attached IG Business Account
+        for page in pages_data["data"]:
+            page_id = page["id"]
+            page_token = page.get("access_token") 
+            ig_resp = await client.get(f"https://graph.facebook.com/v19.0/{page_id}?fields=instagram_business_account&access_token={page_token}")
+            ig_data = ig_resp.json()
+            if "instagram_business_account" in ig_data:
+                ig_account_id = ig_data["instagram_business_account"]["id"]
+                final_token = page_token 
+                break
+
+        if not ig_account_id:
+            raise HTTPException(status_code=400, detail="No Instagram Professional Account found. Make sure your IG account is a Creator/Business account and linked to your FB Page.")
+
+        # Get IG Username
+        user_resp = await client.get(f"https://graph.facebook.com/v19.0/{ig_account_id}?fields=username&access_token={final_token}")
+        user_data = user_resp.json()
+        ig_username = user_data.get("username")
+
+        if not ig_username:
+            raise HTTPException(status_code=400, detail="Could not fetch Instagram username.")
+
+        # 3. Save to Database (instagram_connections table)
+        data_to_save = {
+            "user_id": user_id,
+            "instagram_user_id": ig_account_id,
+            "instagram_username": ig_username,
+            "access_token": final_token,
+        }
+
+        # Check if row already exists to Upsert
+        existing = supabase.table("instagram_connections").select("id").eq("user_id", user_id).execute()
+        
+        if existing.data:
+            supabase.table("instagram_connections").update(data_to_save).eq("user_id", user_id).execute()
+        else:
+            supabase.table("instagram_connections").insert(data_to_save).execute()
+
+        return {"success": True, "username": ig_username}

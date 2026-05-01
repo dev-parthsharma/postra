@@ -26,8 +26,8 @@ export interface ScheduledPost {
 
 export interface CalendarPost {
   id: string;
-  title: string;          // idea text (truncated)
-  scheduled_at: string;   // ISO string
+  title: string;          
+  scheduled_at: string;   
   status: "scheduled" | "published";
 }
 
@@ -35,10 +35,9 @@ export interface SavedIdea {
   id: string;
   idea: string;
   is_favourite: boolean;
-  chat_id: string | null;  // ← added: so CTA can link directly to chat
+  chat_id: string | null;  
 }
 
-// CTA = "Post for Today"
 export type TodayCTA =
   | { type: "draft"; draft: DraftPost }
   | { type: "idea"; idea: SavedIdea }
@@ -49,23 +48,18 @@ export interface DashboardData {
   postsThisMonth: number;
   ideasSaved: number;
   scheduledThisWeek: number;
-  postStreak: number;        // consecutive days with a published post (ending today)
+  postStreak: number;        
   calendarPosts: CalendarPost[];
   todayCTA: TodayCTA;
 }
 
-// ── helpers ────────────────────────────────────────────────────────────────────
-
 function computeStreak(publishedDates: string[]): number {
   if (!publishedDates.length) return 0;
-
-  // Unique calendar days (YYYY-MM-DD) sorted descending
   const days = Array.from(
     new Set(publishedDates.map((d) => d.slice(0, 10)))
   ).sort((a, b) => (a > b ? -1 : 1));
 
   const today = localDateStr(new Date());
-  // streak must include today or yesterday (grace for same-day check)
   if (days[0] !== today && days[0] !== getPrevDay(today)) return 0;
 
   let streak = 1;
@@ -85,7 +79,6 @@ function getPrevDay(dateStr: string): string {
   return localDateStr(d);
 }
 
-/** Returns YYYY-MM-DD in LOCAL time (not UTC) to avoid timezone shift bugs */
 export function localDateStr(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -93,11 +86,9 @@ export function localDateStr(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-// ── hook ───────────────────────────────────────────────────────────────────────
-
 export function useDashboard() {
   const { user } = useAuth();
-  const [data, setData] = useState<DashboardData | null>(null);
+  const[data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -112,7 +103,6 @@ export function useDashboard() {
         const now = new Date();
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-        // week bounds for scheduled count
         const startOfWeek = new Date(now);
         startOfWeek.setDate(now.getDate() - now.getDay());
         startOfWeek.setHours(0, 0, 0, 0);
@@ -120,15 +110,13 @@ export function useDashboard() {
         endOfWeek.setDate(startOfWeek.getDate() + 6);
         endOfWeek.setHours(23, 59, 59, 999);
 
-        // calendar: fetch 3 months of scheduled+published posts
         const calendarStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
         const calendarEnd   = new Date(now.getFullYear(), now.getMonth() + 2, 0).toISOString();
 
-        // streak: all published posts (we only need created_at dates)
         const streakLookback = new Date(now);
-        streakLookback.setDate(now.getDate() - 90); // 90-day window is plenty
+        streakLookback.setDate(now.getDate() - 90); 
 
-        const [
+        const[
           profileRes,
           postsMonthRes,
           ideasRes,
@@ -139,127 +127,60 @@ export function useDashboard() {
           oldestDraftRes,
           savedIdeasRes,
         ] = await Promise.all([
-
-          // 1. profile
-          supabase
-            .from("user_profile")
-            .select("name")
-            .eq("id", user!.id)
-            .single(),
-
-          // 2. posts this month
-          supabase
-            .from("posts")
-            .select("id", { count: "exact", head: true })
-            .eq("user_id", user!.id)
-            .gte("created_at", startOfMonth),
-
-          // 3. ideas saved count
-          supabase
-            .from("ideas")
-            .select("id", { count: "exact", head: true })
-            .eq("user_id", user!.id),
-
-          // 4. scheduled this week count
-          supabase
-            .from("schedules")
-            .select("id, posts!inner ( user_id )", { count: "exact", head: true })
-            .eq("posts.user_id", user!.id)
-            .eq("status", "scheduled")
-            .gte("scheduled_at", startOfWeek.toISOString())
-            .lte("scheduled_at", endOfWeek.toISOString()),
-
-          // 5. published posts for streak calc (just dates)
-          supabase
-            .from("posts")
-            .select("created_at")
-            .eq("user_id", user!.id)
-            .eq("status", "published")
-            .gte("created_at", streakLookback.toISOString()),
-
-          // 6. calendar: scheduled posts with schedule date
-          supabase
-            .from("schedules")
-            .select(`id, scheduled_at, status, posts!inner ( id, idea, user_id )`)
-            .eq("posts.user_id", user!.id)
-            .in("status", ["scheduled"])
-            .gte("scheduled_at", calendarStart)
-            .lte("scheduled_at", calendarEnd)
-            .order("scheduled_at", { ascending: true }),
-
-          // 7. calendar: published posts (use created_at as the date)
-          supabase
-            .from("posts")
-            .select("id, idea, created_at")
-            .eq("user_id", user!.id)
-            .eq("status", "published")
-            .gte("created_at", calendarStart)
-            .lte("created_at", calendarEnd)
-            .order("created_at", { ascending: true }),
-
-          // 8. oldest unfinished draft for CTA (has chat, not published)
-          supabase
-            .from("posts")
-            .select("id, idea, hook, script, status, updated_at, chat_id")
-            .eq("user_id", user!.id)
-            .in("status", ["draft", "idea"])
-            .order("created_at", { ascending: true })   // oldest first
-            .limit(1),
-
-          // 9. saved / favourite ideas for CTA fallback
-          // ← also join chats so we know if a chat already exists for this idea
-          supabase
-            .from("ideas")
-            .select("id, idea, is_favourite, chats(id)")
-            .eq("user_id", user!.id)
-            .or("is_favourite.eq.true,source.eq.user")
-            .order("is_favourite", { ascending: false })
-            .limit(1),
+          supabase.from("user_profile").select("name").eq("id", user!.id).single(),
+          supabase.from("posts").select("id", { count: "exact", head: true }).eq("user_id", user!.id).gte("created_at", startOfMonth),
+          supabase.from("ideas").select("id", { count: "exact", head: true }).eq("user_id", user!.id),
+          supabase.from("schedules").select("id, posts!inner ( user_id )", { count: "exact", head: true }).eq("posts.user_id", user!.id).eq("status", "scheduled").gte("scheduled_at", startOfWeek.toISOString()).lte("scheduled_at", endOfWeek.toISOString()),
+          supabase.from("posts").select("created_at").eq("user_id", user!.id).eq("status", "published").gte("created_at", streakLookback.toISOString()),
+          
+          // Using new schema joins
+          supabase.from("schedules").select(`id, scheduled_at, status, posts!inner ( id, user_id, ideas ( idea ) )`).eq("posts.user_id", user!.id).in("status",["scheduled"]).gte("scheduled_at", calendarStart).lte("scheduled_at", calendarEnd).order("scheduled_at", { ascending: true }),
+          supabase.from("posts").select("id, created_at, ideas ( idea )").eq("user_id", user!.id).eq("status", "published").gte("created_at", calendarStart).lte("created_at", calendarEnd).order("created_at", { ascending: true }),
+          supabase.from("posts").select("id, hook, script, status, updated_at, chat_id, ideas ( idea )").eq("user_id", user!.id).in("status",["draft", "idea"]).order("created_at", { ascending: true }).limit(1),
+          supabase.from("ideas").select("id, idea, is_favourite, chats(id)").eq("user_id", user!.id).or("is_favourite.eq.true,source.eq.user").order("is_favourite", { ascending: false }).limit(1),
         ]);
 
-        // ── assemble ──────────────────────────────────────────────────────────
-
-        const userName =
-          profileRes.data?.name ||
-          user!.email?.split("@")[0] ||
-          "Creator";
-
-        const postsThisMonth   = postsMonthRes.count ?? 0;
-        const ideasSaved       = ideasRes.count ?? 0;
+        const userName = profileRes.data?.name || user!.email?.split("@")[0] || "Creator";
+        const postsThisMonth = postsMonthRes.count ?? 0;
+        const ideasSaved = ideasRes.count ?? 0;
         const scheduledThisWeek = scheduledWeekRes.count ?? 0;
 
-        // streak
-        const publishedDates: string[] = (publishedForStreakRes.data ?? []).map(
-          (p: any) => p.created_at as string
-        );
+        const publishedDates: string[] = (publishedForStreakRes.data ??[]).map((p: any) => p.created_at as string);
         const postStreak = computeStreak(publishedDates);
 
-        // calendar posts
+        // Map calendar posts handling the 'ideas' object properly
         const calendarPosts: CalendarPost[] = [
-          ...(scheduledCalRes.data ?? []).map((s: any) => ({
-            id: s.id,
-            title: (s.posts?.idea ?? "Scheduled post").slice(0, 60),
-            scheduled_at: s.scheduled_at,
-            status: "scheduled" as const,
-          })),
-          ...(publishedCalRes.data ?? []).map((p: any) => ({
-            id: p.id,
-            title: (p.idea ?? "Published post").slice(0, 60),
-            scheduled_at: p.created_at,
-            status: "published" as const,
-          })),
+          ...(scheduledCalRes.data ?? []).map((s: any) => {
+            const ideaText = Array.isArray(s.posts?.ideas) ? s.posts?.ideas[0]?.idea : s.posts?.ideas?.idea;
+            return {
+              id: s.id,
+              title: (ideaText ?? "Scheduled post").slice(0, 60),
+              scheduled_at: s.scheduled_at,
+              status: "scheduled" as const,
+            };
+          }),
+          ...(publishedCalRes.data ??[]).map((p: any) => {
+            const ideaText = Array.isArray(p.ideas) ? p.ideas[0]?.idea : p.ideas?.idea;
+            return {
+              id: p.id,
+              title: (ideaText ?? "Published post").slice(0, 60),
+              scheduled_at: p.created_at,
+              status: "published" as const,
+            };
+          }),
         ].sort((a, b) => (a.scheduled_at > b.scheduled_at ? 1 : -1));
 
-        // today CTA logic
         let todayCTA: TodayCTA = { type: "none" };
-        const oldestDraft = oldestDraftRes.data?.[0];
+        const oldestDraft: any = oldestDraftRes.data?.[0];
+        
         if (oldestDraft) {
+          const ideaText = Array.isArray(oldestDraft.ideas) ? oldestDraft.ideas[0]?.idea : oldestDraft.ideas?.idea;
           todayCTA = {
             type: "draft",
             draft: {
               id: oldestDraft.id,
               chat_id: oldestDraft.chat_id ?? null,
-              idea: oldestDraft.idea,
+              idea: ideaText || "Draft post",
               hook: oldestDraft.hook,
               script: oldestDraft.script,
               status: oldestDraft.status,
@@ -267,35 +188,22 @@ export function useDashboard() {
             },
           };
         } else {
-          const savedIdea = savedIdeasRes.data?.[0];
+          const savedIdea: any = savedIdeasRes.data?.[0];
           if (savedIdea) {
-            // chats join can be an array or single object — normalise it
-            const chatEntry = Array.isArray(savedIdea.chats)
-              ? savedIdea.chats[0]
-              : savedIdea.chats;
-            const chatId = chatEntry?.id ?? null;
-
+            const chatEntry = Array.isArray(savedIdea.chats) ? savedIdea.chats[0] : savedIdea.chats;
             todayCTA = {
               type: "idea",
               idea: {
                 id: savedIdea.id,
                 idea: savedIdea.idea,
                 is_favourite: savedIdea.is_favourite,
-                chat_id: chatId,   // ← now properly populated
+                chat_id: chatEntry?.id ?? null,   
               },
             };
           }
         }
 
-        setData({
-          userName,
-          postsThisMonth,
-          ideasSaved,
-          scheduledThisWeek,
-          postStreak,
-          calendarPosts,
-          todayCTA,
-        });
+        setData({ userName, postsThisMonth, ideasSaved, scheduledThisWeek, postStreak, calendarPosts, todayCTA });
       } catch (err: any) {
         setError(err.message ?? "Failed to load dashboard");
       } finally {
