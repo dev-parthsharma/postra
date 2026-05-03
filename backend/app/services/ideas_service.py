@@ -805,7 +805,7 @@ async def handle_get_chat(supabase, chat_id: str, user_id: str) -> dict:
 
 def _route_message_intent(
     history_text: str, user_message: str, language: str, niche: str, tone: str, plan: str, 
-    hook_count: int, script_count: int, caption_count: int, max_gens: int
+    hook_count: int, script_count: int, caption_count: int, shooting_guide_count: int, editing_guide_count: int, max_gens: int
 ) -> dict:
     prompt = f"""You are the core "Brain" of Postra — an elite, sharp, and highly intelligent Instagram content creation SaaS.
 Your job is to understand the user's current intent based on the conversation history and their profile, and route them to the correct action.
@@ -821,6 +821,8 @@ Max generations allowed per step on this plan: {max_gens}
 - Hooks Generated: {hook_count} / {max_gens}
 - Script Generated: {script_count} / 1
 - Captions Generated: {caption_count} / {max_gens}
+- Shooting Guide Generated: {shooting_guide_count} / 1
+- Editing Guide Generated: {editing_guide_count} / 1
 
 --- CATEGORIES (Return one of these in "action") ---
 - "generate_hooks": Wants hooks, opening lines, or modifications to hooks.
@@ -951,6 +953,9 @@ async def handle_send_message(supabase, chat_id: str, user_id: str, content: str
     caption_count = sum(1 for m in messages if m.get("metadata") and isinstance(m["metadata"], dict) and m["metadata"].get("type") == "caption_selection")
     max_generations = 3 if plan == "pro" else (2 if plan == "starter" else 1)
 
+    shooting_guide_count = sum(1 for m in messages if m.get("metadata") and isinstance(m["metadata"], dict) and m["metadata"].get("type") == "shooting_guide")
+    editing_guide_count = sum(1 for m in messages if m.get("metadata") and isinstance(m["metadata"], dict) and m["metadata"].get("type") == "editing_guide")
+
     # ── ROUTING INTENTS ──
     if intent == "generate_hooks":
         action = "generate_hooks"
@@ -969,7 +974,7 @@ async def handle_send_message(supabase, chat_id: str, user_id: str, content: str
         reply_text = ""
     else:
         # NOW THE BRAIN KNOWS WHAT IS ALREADY GENERATED
-        route = _route_message_intent(history_text, content, language, niche, tone, plan, hook_count, real_script_count, caption_count, max_generations)
+        route = _route_message_intent(history_text, content, language, niche, tone, plan, hook_count, real_script_count, caption_count, shooting_guide_count, editing_guide_count, max_generations)
         action = route.get("action", "generate_other")
         reply_text = route.get("reply", "").strip()
 
@@ -987,10 +992,12 @@ async def handle_send_message(supabase, chat_id: str, user_id: str, content: str
     elif action in["generate_caption", "generate_caption_structured"]:
         if caption_count >= max_generations:
             action = "blocked_caption"
-    elif action == "generate_shooting_guide" and plan == "free":
-        action = "blocked_shooting_guide"
-    elif action == "generate_editing_guide" and plan in["free", "starter"]:
-        action = "blocked_editing_guide"
+    elif action == "generate_shooting_guide":
+        if plan == "free": action = "blocked_shooting_guide"
+        elif shooting_guide_count >= 1: action = "blocked_regeneration_shooting"
+    elif action == "generate_editing_guide":
+        if plan in ["free", "starter"]: action = "blocked_editing_guide"
+        elif editing_guide_count >= 1: action = "blocked_regeneration_editing"
 
     # ── ACTION EXECUTION ──
     
@@ -1015,6 +1022,14 @@ async def handle_send_message(supabase, chat_id: str, user_id: str, content: str
 
     elif action == "blocked_editing_guide":
         ai_reply_text = "Editing guides are exclusively available on the Pro plan! ✂️ Upgrade your plan to unlock premium text overlay, pacing, and sound design strategies." if language != "hinglish" else "Editing guides sirf Pro plan mein available hain! ✂️ Premium editing, text overlays, aur sound design tips ke liye apna plan upgrade karein."
+
+    elif action == "blocked_regeneration_shooting":
+        ai_reply_text = "You have already generated a shooting guide! You can only generate it once. Please edit it directly in the Content Package section." if language != "hinglish" else "Shooting guide pehle hi generate ho chuki hai. Aap isse Content Package section mein ja kar directly edit kar sakte hain."
+        metadata = {"limitReached": "shooting_guide"}
+
+    elif action == "blocked_regeneration_editing":
+        ai_reply_text = "You have already generated an editing guide! You can only generate it once. Please edit it directly in the Content Package section." if language != "hinglish" else "Editing guide pehle hi generate ho chuki hai. Aap isse Content Package section mein ja kar directly edit kar sakte hain."
+        metadata = {"limitReached": "editing_guide"}
 
     elif action in ["chat", "unrelated"] and reply_text:
         ai_reply_text = reply_text

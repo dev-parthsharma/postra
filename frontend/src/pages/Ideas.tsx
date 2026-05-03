@@ -645,6 +645,7 @@ function IdeaRow({
             </button>
           )}
 
+          {/* Actions inside IdeaRow */}
           {!idea.in_progress ? (
             <button
               type="button"
@@ -655,7 +656,19 @@ function IdeaRow({
               {starting ? <Spinner small /> : null}
               {starting ? "Starting…" : "Start Chat →"}
             </button>
+          ) : (idea as any).post_status === "published" ? (
+            // 🟢 Published Button
+            <button
+              type="button"
+              onClick={handleStartChat}
+              disabled={starting}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-all duration-150 disabled:opacity-50"
+            >
+              {starting ? <Spinner small /> : null}
+              {starting ? "Opening…" : "View Post →"}
+            </button>
           ) : (
+            // 🟢 Continue Button
             <button
               type="button"
               onClick={handleStartChat}
@@ -814,8 +827,13 @@ const handleGenerate = async () => {
     }
   };
 
-  const handleStartChat = async (idea: Idea) => {
+  const handleStartChat = async (idea: any) => {
     try {
+      // 🟢 Agar published hai toh direct preview view mein kholo
+      if (idea.post_status === "published" && idea.chat_id) {
+        navigate(`/chat/${idea.chat_id}?view=preview`);
+        return;
+      }
       if (idea.in_progress && idea.chat_id) {
         navigate(`/chat/${idea.chat_id}`);
       } else {
@@ -860,12 +878,13 @@ const handleGenerate = async () => {
     setImproveTarget(null);
   };
 
+  const publishedIdeas = ideas.filter((i: any) => i.post_status === "published");
+  const activeIdeas = ideas.filter((i: any) => i.post_status !== "published");
+
   const isHighlighted = (idea: Idea) => idea.source === "user" || idea.is_favourite;
-  const highlighted = ideas.filter(isHighlighted);
-  const generatedIds = generatedResult
-    ? new Set([generatedResult.recommended.id, ...generatedResult.alternatives.map((a) => a.id)])
-    : new Set<string>();
-  const rest = ideas.filter((i) => !isHighlighted(i) && !generatedIds.has(i.id));
+  const highlighted = activeIdeas.filter(isHighlighted);
+  const generatedIds = generatedResult ? new Set([generatedResult.recommended.id, ...generatedResult.alternatives.map((a) => a.id)]) : new Set<string>();
+  const rest = activeIdeas.filter((i) => !isHighlighted(i) && !generatedIds.has(i.id));
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 space-y-8">
@@ -1043,6 +1062,28 @@ const handleGenerate = async () => {
             </section>
           )}
         </>
+      )}
+
+      {publishedIdeas.length > 0 && (
+        <section className="opacity-70 grayscale-[0.3] hover:opacity-100 hover:grayscale-0 transition-all">
+          <h3 className="text-slate-400 dark:text-zinc-500 text-xs font-medium uppercase tracking-wider mb-3 flex items-center gap-2">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+            Published Posts
+          </h3>
+          <div className="space-y-2">
+            {publishedIdeas.map((idea) => (
+              <IdeaRow
+                key={idea.id}
+                idea={idea}
+                highlighted={false}
+                onToggleFavourite={handleToggleFavourite}
+                onStartChat={handleStartChat}
+                onDelete={handleDelete}
+                onImprove={handleImprove}
+              />
+            ))}
+          </div>
+        </section>
       )}
 
       {/* Improve Idea Modal */}

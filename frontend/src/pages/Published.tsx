@@ -146,16 +146,22 @@ export default function PublishedPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data } = await supabase
+      // 🟢 FIX 1: 'idea' ki jagah 'ideas(idea)' join lagaya hai
+      const { data, error } = await supabase
         .from("posts")
-        .select("id, chat_id, idea, hook, caption, hashtags, posted_at, created_at")
+        .select("id, chat_id, hook, caption, posted_at, created_at, ideas(idea)")
         .eq("user_id", user.id)
         .eq("status", "published")
-        .order("posted_at", { ascending: false, nullsFirst: false });
+        .order("posted_at", { ascending: false }); // 🟢 FIX 2: Removed strict nullsFirst to prevent hidden data
+
+      if (error) {
+        console.error("Error fetching published posts:", error);
+      }
 
       if (data) {
         setPosts(data.map((d: any) => ({
           ...d,
+          idea: d.ideas?.idea ?? null, // 🟢 FIX 3: Join se data extract kiya
           hashtags: Array.isArray(d.hashtags) ? d.hashtags : null,
         })));
       }
@@ -261,7 +267,8 @@ export default function PublishedPage() {
                     <PostCard
                       key={post.id}
                       post={post}
-                      onView={(p) => p.chat_id ? navigate(`/chat/${p.chat_id}`) : {}}
+                      // 🟢 FIX: ?view=preview add kiya
+                      onView={(p) => p.chat_id ? navigate(`/chat/${p.chat_id}?view=preview`) : {}}
                     />
                   ))}
                 </div>

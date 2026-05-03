@@ -53,42 +53,9 @@ export interface DashboardData {
   todayCTA: TodayCTA;
 }
 
-function computeStreak(publishedDates: string[]): number {
-  if (!publishedDates.length) return 0;
-  const days = Array.from(
-    new Set(publishedDates.map((d) => d.slice(0, 10)))
-  ).sort((a, b) => (a > b ? -1 : 1));
-
-  const today = localDateStr(new Date());
-  if (days[0] !== today && days[0] !== getPrevDay(today)) return 0;
-
-  let streak = 1;
-  for (let i = 1; i < days.length; i++) {
-    if (days[i] === getPrevDay(days[i - 1])) {
-      streak++;
-    } else {
-      break;
-    }
-  }
-  return streak;
-}
-
-function getPrevDay(dateStr: string): string {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() - 1);
-  return localDateStr(d);
-}
-
-export function localDateStr(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
 export function useDashboard() {
   const { user } = useAuth();
-  const[data, setData] = useState<DashboardData | null>(null);
+  const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -113,27 +80,30 @@ export function useDashboard() {
         const calendarStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
         const calendarEnd   = new Date(now.getFullYear(), now.getMonth() + 2, 0).toISOString();
 
-        const streakLookback = new Date(now);
-        streakLookback.setDate(now.getDate() - 90); 
-
         const[
           profileRes,
           postsMonthRes,
           ideasRes,
           scheduledWeekRes,
-          publishedForStreakRes,
+          userStatsRes, // 🟢 NAYA STREAK QUERY RESULT
           scheduledCalRes,
           publishedCalRes,
           oldestDraftRes,
           savedIdeasRes,
         ] = await Promise.all([
+          // 1. Profile
           supabase.from("user_profile").select("name").eq("id", user!.id).single(),
+          // 2. Posts this month
           supabase.from("posts").select("id", { count: "exact", head: true }).eq("user_id", user!.id).gte("created_at", startOfMonth),
+          // 3. Ideas saved
           supabase.from("ideas").select("id", { count: "exact", head: true }).eq("user_id", user!.id),
+          // 4. Scheduled this week
           supabase.from("schedules").select("id, posts!inner ( user_id )", { count: "exact", head: true }).eq("posts.user_id", user!.id).eq("status", "scheduled").gte("scheduled_at", startOfWeek.toISOString()).lte("scheduled_at", endOfWeek.toISOString()),
-          supabase.from("posts").select("created_at").eq("user_id", user!.id).eq("status", "published").gte("created_at", streakLookback.toISOString()),
           
-          // Using new schema joins
+          // 5. 🟢 REAL-TIME STREAK FETCH (Database se)
+          supabase.from("user_stats").select("streak_count").eq("user_id", user!.id).order("stat_date", { ascending: false }).limit(1),
+          
+          // 6. Calendar & Drafts
           supabase.from("schedules").select(`id, scheduled_at, status, posts!inner ( id, user_id, ideas ( idea ) )`).eq("posts.user_id", user!.id).in("status",["scheduled"]).gte("scheduled_at", calendarStart).lte("scheduled_at", calendarEnd).order("scheduled_at", { ascending: true }),
           supabase.from("posts").select("id, created_at, ideas ( idea )").eq("user_id", user!.id).eq("status", "published").gte("created_at", calendarStart).lte("created_at", calendarEnd).order("created_at", { ascending: true }),
           supabase.from("posts").select("id, hook, script, status, updated_at, chat_id, ideas ( idea )").eq("user_id", user!.id).in("status",["draft", "idea"]).order("created_at", { ascending: true }).limit(1),
@@ -145,10 +115,9 @@ export function useDashboard() {
         const ideasSaved = ideasRes.count ?? 0;
         const scheduledThisWeek = scheduledWeekRes.count ?? 0;
 
-        const publishedDates: string[] = (publishedForStreakRes.data ??[]).map((p: any) => p.created_at as string);
-        const postStreak = computeStreak(publishedDates);
+        // 🟢 ASSIGNING THE NEW STREAK
+        const postStreak = userStatsRes.data?.[0]?.streak_count || 0;
 
-        // Map calendar posts handling the 'ideas' object properly
         const calendarPosts: CalendarPost[] = [
           ...(scheduledCalRes.data ?? []).map((s: any) => {
             const ideaText = Array.isArray(s.posts?.ideas) ? s.posts?.ideas[0]?.idea : s.posts?.ideas?.idea;

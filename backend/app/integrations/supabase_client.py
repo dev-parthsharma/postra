@@ -2,12 +2,11 @@ from httpx import Client
 from supabase import create_client
 from app.core.settings import settings
 
+supabase = create_client(settings.supabase_url, settings.supabase_service_role_key)
+
 def get_supabase_client():
-    """Supabase SDK client — for DB operations (.table(), .select(), etc.)"""
-    return create_client(
-        settings.supabase_url,
-        settings.supabase_service_role_key
-    )
+    return supabase
+
 
 def get_http_client():
     """Raw httpx client — for direct auth API calls"""
@@ -18,5 +17,5 @@ def get_http_client():
             "Authorization": f"Bearer {settings.supabase_service_role_key}",
             "Content-Type": "application/json",
         },
-        timeout=10.0,
+        timeout=30.0,
     )

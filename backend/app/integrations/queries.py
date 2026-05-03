@@ -45,11 +45,11 @@ def toggle_favourite(supabase, idea_id: str, user_id: str, is_favourite: bool) -
         raise RuntimeError("Idea not found or not owned by user")
     return response.data[0]
 
-
 def get_ideas_with_chat_status(supabase, user_id: str) -> list[dict]:
     response = (
         supabase.table("ideas")
-        .select("*, chats(id)")
+        # 🟢 FIX: `posts(status)` add kiya taaki pata chale post published hai ya nahi
+        .select("*, chats(id), posts(status)")
         .eq("user_id", user_id)
         .order("is_favourite", desc=True)
         .order("created_at", desc=True)
@@ -60,15 +60,25 @@ def get_ideas_with_chat_status(supabase, user_id: str) -> list[dict]:
 
     for idea in ideas:
         chat = idea.get("chats")
+        posts = idea.get("posts")
 
         # normalize
         if isinstance(chat, list):
             chat = chat[0] if chat else None
+            
+        # 🟢 FIX: Status extract kar rahe hain
+        post_status = None
+        if isinstance(posts, list) and len(posts) > 0:
+            post_status = posts[0].get("status")
+        elif isinstance(posts, dict):
+            post_status = posts.get("status")
 
         idea["in_progress"] = 1 if chat else 0
         idea["chat_id"] = chat.get("id") if chat else None
+        idea["post_status"] = post_status # 🟢 Add status to idea
 
         idea.pop("chats", None)
+        idea.pop("posts", None)
 
     return ideas
 
@@ -198,6 +208,9 @@ def upsert_post(supabase, user_id: str, chat_id: str, idea_id: str, **fields) ->
     row = {"user_id": user_id, "chat_id": chat_id,"idea_id": idea_id, **fields}
 
     if existing.data:
+        if existing.data[0].get("status") == "published":
+            return existing.data[0]
+        
         post_id = existing.data[0]["id"]
         response = (
             supabase.table("posts")
@@ -362,3 +375,41 @@ def delete_idea(supabase, idea_id: str, user_id: str) -> None:
     )
     if not response.data:
         raise RuntimeError("Failed to delete idea")
+    
+# ── Stats & Streak ────────────────────────────────────────────────────────────
+
+def update_user_streak(supabase, user_id: str) -> dict:
+    from datetime import date, timedelta
+    today = date.today()
+    today_str = today.isoformat()
+    yesterday_str = (today - timedelta(days=1)).isoformat()
+    
+    # 1. Aaj ka stat fetch karo
+    today_stat = supabase.table("user_stats").select("*").eq("user_id", user_id).eq("stat_date", today_str).execute()
+    
+    if today_stat.data:
+        # Aaj ka record already hai, bas post_count badha do
+        current = today_stat.data[0]
+        new_count = current["posts_count"] + 1
+        res = supabase.table("user_stats").update({"posts_count": new_count}).eq("id", current["id"]).execute()
+        return res.data[0] if res.data else current
+        
+    # 2. Kal ka record check karo streak calculate karne ke liye
+    yesterday_stat = supabase.table("user_stats").select("*").eq("user_id", user_id).eq("stat_date", yesterday_str).execute()
+    
+    if yesterday_stat.data and not yesterday_stat.data[0]["is_break"]:
+        new_streak = yesterday_stat.data[0]["streak_count"] + 1
+    else:
+        new_streak = 1 # Streak break ho gayi thi, naye se start karo
+        
+    # 3. Aaj ka naya record banao
+    new_record = {
+        "user_id": user_id,
+        "stat_date": today_str,
+        "posts_count": 1,
+        "is_break": False,
+        "streak_count": new_streak
+    }
+    
+    res = supabase.table("user_stats").insert(new_record).execute()
+    return res.data[0] if res.data else new_record

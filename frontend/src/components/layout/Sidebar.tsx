@@ -9,7 +9,7 @@ interface NavItem {
   icon: React.ReactNode;
 }
 
-const navItems: NavItem[] = [
+const navItems: NavItem[] =[
   {
     to: "/dashboard",
     label: "Home",
@@ -42,7 +42,7 @@ const navItems: NavItem[] = [
     label: "Drafts",
     icon: (
       <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
       </svg>
     ),
   },
@@ -84,7 +84,7 @@ const navItems: NavItem[] = [
   },
 ];
 
-const bottomItems: NavItem[] = [
+const bottomItems: NavItem[] =[
   {
     to: "/settings",
     label: "Settings",
@@ -98,13 +98,8 @@ const bottomItems: NavItem[] = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ALL helper components defined at module level (outside Sidebar).
-// This is critical: components defined inside another component get a NEW
-// identity on every render, causing React to unmount+remount them — which
-// resets state and re-fires effects (= loading flash on every navigation).
-// ─────────────────────────────────────────────────────────────────────────────
 
-function InstagramStrip({ userId }: { userId: string | undefined }) {
+function InstagramStrip({ userId, plan, onRequireUpgrade }: { userId: string | undefined; plan: string; onRequireUpgrade: () => void }) {
   const [username, setUsername] = useState<string | null>(null);
   const[ready, setReady] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -123,6 +118,12 @@ function InstagramStrip({ userId }: { userId: string | undefined }) {
   }, [userId]);
 
   const handleConnect = () => {
+    // 🟢 1. Check Plan First (Triggers Premium App Popup)
+    if (plan.toLowerCase() === "free") {
+      onRequireUpgrade();
+      return;
+    }
+
     if (username) return; 
     
     if (!window.FB) {
@@ -132,13 +133,11 @@ function InstagramStrip({ userId }: { userId: string | undefined }) {
 
     setConnecting(true);
 
-    // 🟢 FIX: Normal function pass ki hai FB SDK ko
     window.FB.login(
       function (response: any) {
         if (response.authResponse) {
           const fbToken = response.authResponse.accessToken;
           
-          // 🟢 FIX: Async logic ko ek andar (inner) function mein daal diya
           const processLogin = async () => {
             try {
               const { data: { session } } = await supabase.auth.getSession();
@@ -171,7 +170,6 @@ function InstagramStrip({ userId }: { userId: string | undefined }) {
             }
           };
 
-          // Inner function ko call kar diya
           processLogin();
 
         } else {
@@ -180,8 +178,6 @@ function InstagramStrip({ userId }: { userId: string | undefined }) {
         }
       },
       {
-        // 🟢 Permissions required for auto-publishing
-        // scope: "pages_show_list,instagram_basic,pages_read_engagement,instagram_content_publish,pages_manage_posts",
         scope: "pages_show_list,pages_manage_posts,pages_read_engagement,business_management,instagram_basic,instagram_content_publish",
       }
     );
@@ -224,6 +220,7 @@ function InstagramStrip({ userId }: { userId: string | undefined }) {
     </div>
   );
 }
+
 function PlanStrip({ plan, onUpgrade }: { plan: string; onUpgrade: () => void }) {
   const label = plan.charAt(0).toUpperCase() + plan.slice(1).toLowerCase();
   const isFree = plan.toLowerCase() === "free";
@@ -255,16 +252,16 @@ function PlanStrip({ plan, onUpgrade }: { plan: string; onUpgrade: () => void })
   );
 }
 
-// NavContent also at module level so its identity is stable across renders.
 interface NavContentProps {
   userId: string | undefined;
   plan: string;
   onMobileClose?: () => void;
   onSignOut: () => void;
   onUpgrade: () => void;
+  onRequireUpgrade: () => void;
 }
 
-function NavContent({ userId, plan, onMobileClose, onSignOut, onUpgrade }: NavContentProps) {
+function NavContent({ userId, plan, onMobileClose, onSignOut, onUpgrade, onRequireUpgrade }: NavContentProps) {
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 group ${
       isActive
@@ -291,7 +288,7 @@ function NavContent({ userId, plan, onMobileClose, onSignOut, onUpgrade }: NavCo
 
       {/* Instagram strip */}
       <div className="pt-3 flex-shrink-0">
-        <InstagramStrip userId={userId} />
+        <InstagramStrip userId={userId} plan={plan} onRequireUpgrade={onRequireUpgrade} />
       </div>
 
       {/* Main nav */}
@@ -355,8 +352,8 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const navigate = useNavigate();
   const [userId, setUserId] = useState<string | undefined>(undefined);
   const [plan, setPlan] = useState("free");
+  const[showUpgradeModal, setShowUpgradeModal] = useState(false); // 🟢 Premium App Popup State
 
-  // Runs once on mount — fetches user id + plan
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return;
@@ -370,14 +367,17 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           if (data?.plan) setPlan(data.plan);
         });
     });
-  }, []);
+  },[]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     navigate("/login");
   };
 
-  const handleUpgrade = () => navigate("/upgrade", { state: { plan } });
+  const handleUpgrade = () => {
+    setShowUpgradeModal(false);
+    navigate("/upgrade", { state: { plan } });
+  };
 
   return (
     <>
@@ -388,6 +388,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           plan={plan}
           onSignOut={handleSignOut}
           onUpgrade={handleUpgrade}
+          onRequireUpgrade={() => setShowUpgradeModal(true)} // 🟢 Prop passed
         />
       </aside>
 
@@ -422,10 +423,44 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
                 onMobileClose={onMobileClose}
                 onSignOut={handleSignOut}
                 onUpgrade={handleUpgrade}
+                onRequireUpgrade={() => setShowUpgradeModal(true)} // 🟢 Prop passed
               />
             </div>
           </aside>
         </>
+      )}
+
+      {/* 🟢 CUSTOM APP POPUP (Premium Required) */}
+      {showUpgradeModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#1a1d27] w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden border border-slate-100 dark:border-white/[0.06] transform transition-all scale-in-center">
+            <div className="p-6 text-center">
+              <div className="mx-auto w-14 h-14 bg-gradient-to-tr from-indigo-500 to-fuchsia-500 rounded-full flex items-center justify-center mb-4 shadow-inner">
+                <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="white" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2-2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Upgrade Required</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed mb-6">
+                Auto-publishing to Instagram is an exclusive feature for <strong className="text-slate-700 dark:text-slate-300">Starter</strong> and <strong className="text-slate-700 dark:text-slate-300">Pro</strong> plans. Put your content on auto-pilot today! 🚀
+              </p>
+              <div className="flex flex-col gap-2.5">
+                <button
+                  onClick={handleUpgrade}
+                  className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-colors active:scale-95"
+                >
+                  View Plans & Upgrade
+                </button>
+                <button
+                  onClick={() => setShowUpgradeModal(false)}
+                  className="w-full py-3 px-4 bg-slate-100 dark:bg-white/[0.05] hover:bg-slate-200 dark:hover:bg-white/[0.08] text-slate-700 dark:text-slate-300 font-semibold rounded-xl transition-colors"
+                >
+                  Maybe Later
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

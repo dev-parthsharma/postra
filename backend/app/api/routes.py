@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from typing import Optional
 import httpx
 import os
+from datetime import datetime, timezone
 
 from app.integrations.queries import (
     fetch_user_count,
@@ -14,6 +15,7 @@ from app.integrations.queries import (
     create_chat,
     get_user_profile,
     delete_idea,
+    update_user_streak
 )
 from app.schemas.auth import AuthRequest
 from app.schemas.response import HealthResponse
@@ -22,6 +24,7 @@ from app.integrations.supabase_client import get_supabase_client, get_http_clien
 from app.services import ideas_service
 from app.services.ideas_service import IdeaInvalid, IdeaConfused, IdeaLimitReached
 from app.core.settings import settings
+from app.services.instagram_service import publish_reel_to_instagram
 
 router = APIRouter()
 
@@ -30,19 +33,24 @@ router = APIRouter()
 
 def get_current_user_id(authorization: str = Header(...)) -> str:
     try:
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Invalid auth format")
+            
         token = authorization.split(" ")[1]
-        response = get_http_client().get(
-            "/auth/v1/user",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        if response.status_code != 200:
-            raise HTTPException(status_code=401, detail="Invalid or expired token")
-        return response.json()["id"]
-    except HTTPException:
-        raise
+        
+        # 🟢 Supabase SDK ka user fetch method
+        client = get_supabase_client()
+        user_resp = client.auth.get_user(token)
+        
+        # 🟢 .user check karne se pehle safety
+        if user_resp and hasattr(user_resp, 'user') and user_resp.user:
+            return user_resp.user.id
+        else:
+            raise HTTPException(status_code=401, detail="User not found in token")
+            
     except Exception as e:
         print("JWT ERROR:", str(e))
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        raise HTTPException(status_code=401, detail=f"Auth failed: {str(e)}")
 
 
 def get_supabase():
@@ -494,3 +502,49 @@ async def connect_instagram(req: IGConnectRequest, request: Request):
             supabase.table("instagram_connections").insert(data_to_save).execute()
 
         return {"success": True, "username": ig_username}
+    
+# @router.post("/integrations/instagram/test-publish/{post_id}")
+# async def test_publish_route(
+#     post_id: str,
+#     user_id: str = Depends(get_current_user_id),
+#     supabase=Depends(get_supabase)
+# ):
+    # try:
+    #     result = await publish_post_to_instagram(supabase, user_id, post_id)
+    #     return result
+    # except Exception as e:
+    #     raise HTTPException(status_code=500, detail=str(e))
+    
+@router.post("/integrations/instagram/publish/{post_id}")
+async def publish_route(post_id: str, user_id: str = Depends(get_current_user_id), supabase=Depends(get_supabase)):
+    try:
+        result = await publish_reel_to_instagram(supabase, user_id, post_id)
+        # 🟢 Premium users ke publish success hote hi streak update kar do
+        if result.get("success"):
+            update_user_streak(supabase, user_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.post("/integrations/instagram/manual-publish/{post_id}")
+async def manual_publish_route(
+    post_id: str,
+    user_id: str = Depends(get_current_user_id),
+    supabase=Depends(get_supabase)
+):
+    try:
+        # Update post status to published
+        post_resp = supabase.table("posts").update({
+            "status": "published",
+            "posted_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+            }).eq("id", post_id).eq("user_id", user_id).execute()
+        if not post_resp.data:
+            raise HTTPException(status_code=404, detail="Post not found")
+            
+        # Update streak
+        stat = update_user_streak(supabase, user_id)
+        
+        return {"success": True, "message": "Marked as published manually", "streak_count": stat["streak_count"]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

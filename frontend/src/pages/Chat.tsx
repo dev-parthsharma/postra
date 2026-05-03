@@ -1,7 +1,7 @@
 // frontend/src/pages/Chat.tsx
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useChat } from "../hooks/useChat";
 import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../lib/supabase";
@@ -11,6 +11,7 @@ import type { ImprovedIdeaResult } from "../lib/ideasApi";
 import { editScriptWithAI, unlockScriptApi } from "../lib/chatApi";
 import InstagramPreview from "../components/InstagramPreview";
 
+// ── Typewriter & Smart CTA Parser ────────────────────────────────────────────
 // ── Typewriter & Smart CTA Parser ────────────────────────────────────────────
 function TypewriterText({
   text,
@@ -51,7 +52,8 @@ function TypewriterText({
     return () => clearInterval(interval);
   }, [text, isNew]);
 
-  if (ctaIntent && onCtaClick && isTypingFinished) {
+  // 🟢 FIX: Yahan se 'onCtaClick' ka check hata diya, taaki published post mein CTA locked dikhe
+  if (ctaIntent && isTypingFinished) {
     const lastQIndex = text.lastIndexOf("?");
     if (lastQIndex !== -1) {
       const snippet = text.substring(0, lastQIndex);
@@ -69,9 +71,10 @@ function TypewriterText({
         <p className="whitespace-pre-wrap">
           {baseText}
           <span
-            onClick={() => onCtaClick(fallbackCtaText || "Yes, generate it 🚀", ctaIntent)}
-            className="cursor-pointer font-semibold text-indigo-600 dark:text-indigo-400 underline decoration-indigo-400/60 dark:decoration-indigo-500/60 decoration-dashed underline-offset-4 hover:text-indigo-800 dark:hover:text-indigo-300 transition-all duration-200"
-            title="Click to auto-send"
+            // 🟢 FIX: Yahan function call ko safe kar diya
+            onClick={() => onCtaClick && onCtaClick(fallbackCtaText || "Yes, generate it 🚀", ctaIntent)}
+            className={`font-semibold text-indigo-600 dark:text-indigo-400 underline decoration-indigo-400/60 dark:decoration-indigo-500/60 decoration-dashed underline-offset-4 transition-all duration-200 ${onCtaClick ? 'cursor-pointer hover:text-indigo-800 dark:hover:text-indigo-300' : 'opacity-70 cursor-not-allowed'}`}
+            title={onCtaClick ? "Click to auto-send" : "Locked"}
           >
             {ctaText}
           </span>
@@ -198,6 +201,7 @@ function MessageBubble({
   message,
   isLatestAiMsg,
   plan,
+  isPublished,
   onSendIntent,
   onSaveSelection,
   onEditScript,
@@ -211,6 +215,7 @@ function MessageBubble({
   message: ChatMessage;
   isLatestAiMsg: boolean;
   plan: string;
+  isPublished: boolean;
   onSendIntent: (txt: string, intent: string) => void;
   onSaveSelection: (type: "hook" | "caption" | "script", text: string) => void;
   onEditScript: (scriptText: string) => void;
@@ -258,7 +263,7 @@ function MessageBubble({
               isNew={isLatestAiMsg}
               ctaIntent={showInlineCta ? meta.cta : undefined}
               fallbackCtaText={meta.cta_text}
-              onCtaClick={onSendIntent}
+              onCtaClick={isPublished ? undefined : onSendIntent} // 🟢 Disable inline CTA if published
             />
           )}
 
@@ -269,7 +274,8 @@ function MessageBubble({
           )}
         </div>
 
-        {showStandaloneCta && (
+        {/* Standalone CTA Button */}
+        {showStandaloneCta && !isPublished && ( // 🟢 Hide standalone CTA if published
           <button
             onClick={() => onSendIntent(meta.cta_text || "Continue 🚀", meta.cta)}
             className="mt-2 px-4 py-2 bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/30 rounded-xl text-sm font-semibold transition-all shadow-sm active:scale-95"
@@ -292,7 +298,6 @@ function MessageBubble({
               <div className="flex flex-col gap-3">
                 {meta.options.map((hookText: string, idx: number) => (
                   <div key={idx} className="relative w-full">
-                    {/* 🟢 NEW: Visual Recommended Badge on the First Hook */}
                     {idx === 0 && (
                       <div className="absolute -top-2.5 right-3 px-2 py-0.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-[10px] font-bold uppercase tracking-wider rounded-full shadow-sm z-10 flex items-center gap-1 pointer-events-none">
                         <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
@@ -302,8 +307,11 @@ function MessageBubble({
                       </div>
                     )}
                     <button
-                      onClick={() => onSaveSelection("hook", hookText)}
-                      className={`w-full text-left p-3.5 rounded-xl border text-[13.5px] leading-relaxed transition-all active:scale-[0.99] ${
+                      onClick={() => !isPublished && onSaveSelection("hook", hookText)}
+                      disabled={isPublished} // 🟢 Disable clicking if published
+                      className={`w-full text-left p-3.5 rounded-xl border text-[13.5px] leading-relaxed transition-all ${
+                        isPublished ? "opacity-60 cursor-not-allowed " : "active:scale-[0.99] "
+                      }${
                         idx === 0 
                           ? "bg-orange-50/50 dark:bg-orange-500/10 border-orange-200 dark:border-orange-500/30 text-slate-800 dark:text-zinc-100 hover:border-orange-400 dark:hover:border-orange-500/50 hover:shadow-md"
                           : "bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md hover:bg-indigo-50/50 dark:hover:bg-indigo-500/10"
@@ -316,7 +324,7 @@ function MessageBubble({
               </div>
 
               {/* Regenerate Hooks Logic */}
-              {onRegenerateHook && (
+              {!isPublished && onRegenerateHook && ( // 🟢 Hide if published
                 <div className="mt-4 pt-3 border-t border-slate-200 dark:border-zinc-700">
                   {hideRegenerateBtn ? (
                     <div className="flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-slate-400 dark:text-zinc-500 bg-slate-100/50 dark:bg-zinc-800/50 rounded-xl border border-slate-200/50 dark:border-zinc-700/50">
@@ -340,9 +348,11 @@ function MessageBubble({
               )}
             </div>
 
-            <div className="mt-2.5 ml-1.5 text-[13px] font-medium text-slate-500 dark:text-zinc-500">
-              👆 Choose a hook to continue
-            </div>
+            {!isPublished && (
+              <div className="mt-2.5 ml-1.5 text-[13px] font-medium text-slate-500 dark:text-zinc-500">
+                👆 Choose a hook to continue
+              </div>
+            )}
             
           </div>
         )}
@@ -381,11 +391,14 @@ function MessageBubble({
                       </div>
 
                       <button
-                        onClick={() => onSaveSelection("caption", captionText)}
-                        className={`w-full text-left p-4 pt-4 rounded-xl border text-[13.5px] leading-relaxed transition-all active:scale-[0.99] whitespace-pre-wrap ${
+                        onClick={() => !isPublished && onSaveSelection("caption", captionText)}
+                        disabled={isPublished} // 🟢 Disable clicking if published
+                        className={`w-full text-left p-4 pt-4 rounded-xl border text-[13.5px] leading-relaxed transition-all ${
+                          isPublished ? "opacity-60 cursor-not-allowed " : "active:scale-[0.99] "
+                        }${
                           idx === 0 
-                            ? "bg-emerald-50/50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30 text-slate-800 dark:text-zinc-100 hover:border-emerald-400 dark:hover:border-emerald-500/50 hover:shadow-md"
-                            : "bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md hover:bg-indigo-50/50 dark:hover:bg-indigo-500/10"
+                            ? "bg-emerald-50/50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30 text-slate-800 dark:text-zinc-100 hover:border-emerald-400 dark:hover:border-emerald-500/50"
+                            : "bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 hover:border-indigo-400 dark:hover:border-indigo-500 hover:bg-indigo-50/50 dark:hover:bg-indigo-500/10"
                         }`}
                       >
                         {captionText}
@@ -396,7 +409,7 @@ function MessageBubble({
               </div>
 
               {/* Regenerate Captions Logic */}
-              {onRegenerateCaption && (
+              {!isPublished && onRegenerateCaption && ( // 🟢 Hide if published
                 <div className="mt-4 pt-3 border-t border-slate-200 dark:border-zinc-700">
                   {hideRegenerateCaptionBtn ? (
                     <div className="flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-slate-400 dark:text-zinc-500 bg-slate-100/50 dark:bg-zinc-800/50 rounded-xl border border-slate-200/50 dark:border-zinc-700/50">
@@ -412,7 +425,10 @@ function MessageBubble({
                 </div>
               )}
             </div>
-            <div className="mt-2.5 ml-1.5 text-[13px] font-medium text-slate-500 dark:text-zinc-500">👆 Choose a caption to finish</div>
+            
+            {!isPublished && (
+              <div className="mt-2.5 ml-1.5 text-[13px] font-medium text-slate-500 dark:text-zinc-500">👆 Choose a caption to finish</div>
+            )}
           </div>
         )}
 
@@ -462,9 +478,11 @@ function MessageBubble({
                           <div className="relative mt-1">
                             <div className="h-16 bg-gradient-to-b from-slate-200/60 to-transparent dark:from-zinc-800/60 rounded-lg border border-slate-300/50 dark:border-zinc-700/50 pointer-events-none blur-[2px] opacity-80"></div>
                             
+                            {/* Disable unlock button if published */}
                             <button
-                              onClick={() => plan === "free" ? onUpgrade() : onUnlockAndEdit(message.id, meta.script_text)}
-                              className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-1.5 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-full shadow-md transition-all active:scale-95 z-10 whitespace-nowrap"
+                              onClick={() => isPublished ? undefined : (plan === "free" ? onUpgrade() : onUnlockAndEdit(message.id, meta.script_text))}
+                              disabled={isPublished}
+                              className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-1.5 px-5 py-2.5 text-white text-[13px] font-semibold rounded-full shadow-md transition-all z-10 whitespace-nowrap ${isPublished ? 'bg-slate-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 active:scale-95'}`}
                             >
                               {plan === "free" ? (
                                 <>
@@ -496,13 +514,16 @@ function MessageBubble({
                               <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-indigo-50 dark:from-zinc-900 via-indigo-50/80 dark:via-zinc-900/80 to-transparent pointer-events-none" />
                             </div>
                             
-                            <button
-                              onClick={() => onEditScript(meta.script_text)}
-                              className="absolute -bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-full shadow-md transition-all active:scale-95 z-10 whitespace-nowrap"
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                              Review & Edit Script
-                            </button>
+                            {/* Hide Edit button if published */}
+                            {!isPublished && (
+                              <button
+                                onClick={() => onEditScript(meta.script_text)}
+                                className="absolute -bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-full shadow-md transition-all active:scale-95 z-10 whitespace-nowrap"
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                Review & Edit Script
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -558,21 +579,19 @@ function TypingIndicator() {
 export default function Chat() {
   const { chatId } = useParams<{ chatId: string }>();
   const navigate = useNavigate();
+  const[searchParams] = useSearchParams();
   const { user } = useAuth();
   
   const { state, bottomRef, setInputText, handleSend, handleUpdateIdeaData, handleSaveSelection } = useChat(chatId ?? "");
   const { chat, messages, inputText, loading, sending } = state;
 
-  // 🟢 TYPEWRITER FIX LOGIC 🟢
   const initialMsgCount = useRef<number | null>(null);
   useEffect(() => {
-    // Jab chat pehli baar load ho jaye, tab count save kar lo
     if (!loading && initialMsgCount.current === null) {
       initialMsgCount.current = messages.length;
     }
   }, [loading, messages.length]);
 
-  // ── Plan Fetching ──
   const [plan, setPlan] = useState<string>("free");
 
   useEffect(() => {
@@ -584,8 +603,7 @@ export default function Chat() {
     fetchPlan();
   }, [user]);
 
-  // ── Modals & States ──
-  const [weakScoreDismissed, setWeakScoreDismissed] = useState(false);
+  const[weakScoreDismissed, setWeakScoreDismissed] = useState(false);
   const [improveLoading, setImproveLoading] = useState(false);
   const[improvedData, setImprovedData] = useState<ImprovedIdeaResult | null>(null);
   
@@ -593,25 +611,31 @@ export default function Chat() {
   const [confirmCaption, setConfirmCaption] = useState<string | null>(null);
   const [editingScript, setEditingScript] = useState<string | null>(null);
   
-  const [warningMessage, setWarningMessage] = useState<string | null>(null);
+  const[warningMessage, setWarningMessage] = useState<string | null>(null);
   const[confirmScriptUpdate, setConfirmScriptUpdate] = useState<string | null>(null);
 
   const [isUnlockingScript, setIsUnlockingScript] = useState(false);
   const [unlockedScriptsLocal, setUnlockedScriptsLocal] = useState<Record<string, string>>({});
 
-  // ── View Toggle State ──
-  const [activeView, setActiveView] = useState<"chat" | "preview">("chat");
+  const initialView = searchParams.get("view") === "preview" ? "preview" : "chat";
+  const [activeView, setActiveView] = useState<"chat" | "preview">(initialView);
+  
+  const [isPublished, setIsPublished] = useState(false);
 
-  // ── AI Edit Script States ──
+  useEffect(() => {
+    if (!chatId) return;
+    supabase.from("posts").select("status").eq("chat_id", chatId).maybeSingle().then(({data}) => {
+      if (data?.status === "published") setIsPublished(true);
+    });
+  },[chatId]);
+
   const[aiEditPrompt, setAiEditPrompt] = useState("");
   const [isAiEditing, setIsAiEditing] = useState(false);
 
-  // ── Undo Toast States ──
   const[originalScriptForUndo, setOriginalScriptForUndo] = useState<string | null>(null);
   const[undoData, setUndoData] = useState<{ oldText: string; newText: string } | null>(null);
   const undoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Unsaved Changes Logic ──
   const [showDiscardAlert, setShowDiscardAlert] = useState(false);
   const hasUnsavedScriptChanges = editingScript !== null && editingScript !== originalScriptForUndo;
 
@@ -664,9 +688,7 @@ export default function Chat() {
       const res = await unlockScriptApi(chatId!);
       setEditingScript(res.script);
       setOriginalScriptForUndo(res.script); 
-      
-      // 🟢 Ab TypeScript ko pata hai ki msgId kahan se aa raha hai
-      setUnlockedScriptsLocal((prev) => ({ ...prev, [msgId]: res.script }));
+      setUnlockedScriptsLocal((prev) => ({ ...prev,[msgId]: res.script }));
     } catch (err) {
       console.error(err);
       setWarningMessage("Failed to unlock script. Please try again.");
@@ -676,7 +698,6 @@ export default function Chat() {
     }
   };
 
-  // ── Hook & Caption Metrics & Logic ──
   const maxGenerationsAllowed = plan === "pro" ? 3 : plan === "starter" ? 2 : 1;
   
   const hookSelectionMessages = messages.filter((m) => m.metadata?.type === "hook_selection");
@@ -702,10 +723,12 @@ export default function Chat() {
   };
 
   const handleUserSend = async (overrideText?: string, explicitIntent?: string) => {
-    // Sirf Button Clicks (explicitIntent) ke liye strict frontend validation lagayenge.
-    // Typed text pe ab koi restriction nahi hai, use backend ka AI khud samajh lega.
+    // 🟢 BLOCK CHAT IF PUBLISHED
+    if (isPublished) {
+        setWarningMessage("This post is already published. No further changes allowed.");
+        return;
+    }
 
-    // 1. Hook Explicit Requests (From CTA buttons)
     if (explicitIntent === "generate_hooks") {
       if (maxScriptsReached) {
         setWarningMessage("You cannot generate new hooks because the script has already been generated based on your selected hook. Please edit the script directly if you want to make changes.");
@@ -717,7 +740,6 @@ export default function Chat() {
       }
     }
 
-    // 2. Caption Explicit Requests (From CTA buttons)
     if (explicitIntent === "generate_caption") {
       if (maxCaptionsReached) {
         setWarningMessage(getLimitWarning("caption"));
@@ -725,7 +747,6 @@ export default function Chat() {
       }
     }
     
-    // 3. Script Explicit Requests (From CTA buttons)
     if (explicitIntent === "generate_script") {
       if (!hasSelectedHook) {
         setWarningMessage("Please select a hook first! The script will be generated seamlessly continuing from your chosen hook.");
@@ -743,14 +764,14 @@ export default function Chat() {
 
     setWeakScoreDismissed(true);
     
-    // Message send karo
     const res = await handleSend(overrideText, explicitIntent);
 
-    // Agar backend ne bola ki user limit cross kar chuka hai, tab warning dikhao
     if (res && res.limitReached === "hook") setWarningMessage(getLimitWarning("hook"));
     else if (res && res.limitReached === "hook_post_script") setWarningMessage("You cannot generate new hooks because the script has already been generated. Please edit the script directly.");
     else if (res && res.limitReached === "script") setWarningMessage("You have already generated a script! You can only generate it once. Please review and edit the existing script above.");
     else if (res && res.limitReached === "caption") setWarningMessage(getLimitWarning("caption"));
+    else if (res && res.limitReached === "shooting_guide") setWarningMessage("You have already generated a shooting guide! You can only generate it once. Please edit it directly in the Content Package section.");
+    else if (res && res.limitReached === "editing_guide") setWarningMessage("You have already generated an editing guide! You can only generate it once. Please edit it directly in the Content Package section.");
   };
 
   const handleAiEditScript = async () => {
@@ -769,11 +790,10 @@ export default function Chat() {
     }
   };
 
-  // ── Improve Idea Logic ──
   const firstAssistantMsg = messages.find((m) => m.source === "assistant");
   const openingWinScore: number | null = (firstAssistantMsg?.metadata?.win_score as number) ?? null;
   const hasUserMessage = messages.some((m) => m.source === "user");
-  const showWeakScoreActions = openingWinScore !== null && openingWinScore < 7 && !weakScoreDismissed && !hasUserMessage;
+  const showWeakScoreActions = openingWinScore !== null && openingWinScore < 7 && !weakScoreDismissed && !hasUserMessage && !isPublished;
 
   const handleImproveClick = async () => {
     if (!chat?.idea_id) return;
@@ -846,9 +866,8 @@ export default function Chat() {
     );
   }
 
-  // Determine if QuickSuggestions should show
   const hasAssistantMessage = messages.some((m) => m.source === "assistant");
-  const showSuggestions = hasAssistantMessage && !hasUserMessage && !sending && !showWeakScoreActions;
+  const showSuggestions = hasAssistantMessage && !hasUserMessage && !sending && !showWeakScoreActions && !isPublished;
 
   return (
     <div className="fixed inset-0 lg:left-60 pt-16 lg:pt-0 bg-slate-50 dark:bg-zinc-950 flex flex-col overflow-hidden">
@@ -932,7 +951,6 @@ export default function Chat() {
                   ? { ...msg, metadata: { ...msg.metadata, is_locked: false, script_text: unlockedScriptsLocal[msg.id] } } 
                   : msg;
 
-                // 🟢 UPDATED CONDITION: Sirf wahi naya hai jo initial load ke baad aaya hai
                 const isNewInSession = initialMsgCount.current !== null && idx >= initialMsgCount.current;
 
                 return (
@@ -941,10 +959,12 @@ export default function Chat() {
                       message={displayMsg}
                       isLatestAiMsg={isNewInSession && idx === messages.length - 1 && !sending && displayMsg.source === "assistant"}
                       plan={plan}
+                      isPublished={isPublished} // 🟢 Pass prop
                       onUpgrade={() => navigate("/upgrade")}
                       onUnlockAndEdit={handleUnlockAndEdit}
                       onSendIntent={(txt, intent) => handleUserSend(txt, intent)}
                       onSaveSelection={(type, text) => {
+                        if (isPublished) return; // 🟢 Double protection
                         setWeakScoreDismissed(true);
                         if (type === "hook") onHookSelect(text);
                         if (type === "caption") onCaptionSelect(text);
@@ -988,36 +1008,47 @@ export default function Chat() {
           {/* Input Bar */}
           <div className="flex-shrink-0 border-t border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 py-4 z-10">
             <div className="max-w-[700px] mx-auto">
-              <div className="flex items-end gap-3 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-2xl p-1.5 focus-within:border-indigo-400 dark:focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100 transition-all shadow-sm">
-                <textarea
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      handleUserSend();
-                    }
-                  }}
-                  disabled={sending}
-                  rows={1}
-                  placeholder={sending ? "Postra is typing..." : "Reply to Postra..."}
-                  className="flex-1 bg-transparent px-3 py-2.5 outline-none resize-none disabled:opacity-50 text-sm text-slate-800 dark:text-zinc-200 placeholder-slate-400 dark:placeholder-zinc-500 self-center"
-                  style={{ minHeight: "24px", maxHeight: "128px" }}
-                />
-                <button
-                  onClick={() => handleUserSend()}
-                  disabled={!inputText.trim() || sending}
-                  className="w-10 h-10 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center transition-all disabled:opacity-40 shadow-sm flex-shrink-0"
-                >
-                  {sending ? (
-                    <Spinner size={14} />
-                  ) : (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" />
-                    </svg>
-                  )}
-                </button>
-              </div>
+              
+              {isPublished ? (
+                <div className="flex items-center justify-center p-3.5 bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-2xl shadow-inner">
+                  <p className="text-sm font-semibold text-slate-500 dark:text-zinc-400 flex items-center gap-2">
+                    <svg width="16" height="16" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>
+                    This post is already published. Chat is locked.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex items-end gap-3 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-2xl p-1.5 focus-within:border-indigo-400 dark:focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100 transition-all shadow-sm">
+                  <textarea
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        handleUserSend();
+                      }
+                    }}
+                    disabled={sending}
+                    rows={1}
+                    placeholder={sending ? "Postra is typing..." : "Reply to Postra..."}
+                    className="flex-1 bg-transparent px-3 py-2.5 outline-none resize-none disabled:opacity-50 text-sm text-slate-800 dark:text-zinc-200 placeholder-slate-400 dark:placeholder-zinc-500 self-center"
+                    style={{ minHeight: "24px", maxHeight: "128px" }}
+                  />
+                  <button
+                    onClick={() => handleUserSend()}
+                    disabled={!inputText.trim() || sending}
+                    className="w-10 h-10 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center transition-all disabled:opacity-40 shadow-sm flex-shrink-0"
+                  >
+                    {sending ? (
+                      <Spinner size={14} />
+                    ) : (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              )}
+
             </div>
           </div>
         </>

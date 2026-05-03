@@ -206,7 +206,7 @@ export default function DraftsPage() {
         .from("posts")
         .select("id, chat_id, idea_id, hook, script, caption, status, created_at, updated_at, ideas(idea), chats(title)")
         .eq("user_id", user.id)
-        .in("status",["draft", "ready", "idea"])
+        .in("status",["draft", "ready"])
         .order("updated_at", { ascending: false });
 
       if (data) {
@@ -227,7 +227,11 @@ export default function DraftsPage() {
   };
 
   const handleContinue = (draft: Draft) => {
-    if (draft.chat_id) navigate(`/chat/${draft.chat_id}`);
+    if (draft.chat_id) {
+       // Agar ready hai, toh direct preview kholo
+       const suffix = draft.status === "ready" ? "?view=preview" : "";
+       navigate(`/chat/${draft.chat_id}${suffix}`);
+    }
   };
 
   const filtered = drafts.filter((d) => {
