@@ -624,10 +624,14 @@ export default function Chat() {
 
   useEffect(() => {
     if (!chatId) return;
+    
+    // 🟢 Fetch latest status from DB
     supabase.from("posts").select("status").eq("chat_id", chatId).maybeSingle().then(({data}) => {
-      if (data?.status === "published") setIsPublished(true);
+      if (data?.status === "published") {
+        setIsPublished(true);
+      }
     });
-  },[chatId]);
+  }, [chatId, activeView]);
 
   const[aiEditPrompt, setAiEditPrompt] = useState("");
   const [isAiEditing, setIsAiEditing] = useState(false);
