@@ -100,9 +100,9 @@ class IGConnectRequest(BaseModel):
 
 # ── Health ────────────────────────────────────────────────────────────────────
 
-@router.get("/health", response_model=HealthResponse)
-def health() -> dict:
-    return {"status": "ok", "service": "postra-backend", "environment": "production"}
+@router.get("/healthz")
+def health_check() -> dict:
+    return {"status": "ok", "service": "postra-backend", "environment": settings.environment}
 
 
 @router.get("/supabase-test")
