@@ -4,7 +4,7 @@
 
 import { supabase } from "./supabase";
 
-const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+import { API_BASE } from "./apiBase";
 
 async function authHeaders(): Promise<HeadersInit> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -113,7 +113,7 @@ export interface Chat {
  * cancel the request (e.g. on component unmount or Strict Mode double-mount).
  */
 export async function generateIdeas(signal?: AbortSignal): Promise<GeneratedIdeasResult> {
-  const res = await fetch(`${BASE}/api/ideas/generate`, {
+  const res = await fetch(`${API_BASE}/api/ideas/generate`, {
     method: "POST",
     headers: await authHeaders(),
     signal,
@@ -122,7 +122,7 @@ export async function generateIdeas(signal?: AbortSignal): Promise<GeneratedIdea
 }
 
 export async function saveUserIdea(idea: string): Promise<Idea> {
-  const res = await fetch(`${BASE}/api/ideas/save`, {
+  const res = await fetch(`${API_BASE}/api/ideas/save`, {
     method: "POST",
     headers: await authHeaders(),
     body: JSON.stringify({ idea }),
@@ -137,7 +137,7 @@ export async function saveUserIdea(idea: string): Promise<Idea> {
 }
 
 export async function improveIdea(ideaId: string, ideaText: string): Promise<ImprovedIdeaResult> {
-  const res = await fetch(`${BASE}/api/ideas/improve`, {
+  const res = await fetch(`${API_BASE}/api/ideas/improve`, {
     method: "POST",
     headers: await authHeaders(),
     body: JSON.stringify({ idea_id: ideaId, idea_text: ideaText }),
@@ -152,7 +152,7 @@ export async function updateIdea(
   whyItWorks: string, 
   winScore: number
 ): Promise<{ idea: Idea; new_opening_message?: string }> {
-  const res = await fetch(`${BASE}/api/ideas/${ideaId}`, {
+  const res = await fetch(`${API_BASE}/api/ideas/${ideaId}`, {
     method: "PATCH",
     headers: await authHeaders(),
     body: JSON.stringify({ 
@@ -167,7 +167,7 @@ export async function updateIdea(
 }
 
 export async function toggleFavourite(ideaId: string, isFavourite: boolean): Promise<Idea> {
-  const res = await fetch(`${BASE}/api/ideas/favourite`, {
+  const res = await fetch(`${API_BASE}/api/ideas/favourite`, {
     method: "PATCH",
     headers: await authHeaders(),
     body: JSON.stringify({ idea_id: ideaId, is_favourite: isFavourite }),
@@ -177,7 +177,7 @@ export async function toggleFavourite(ideaId: string, isFavourite: boolean): Pro
 }
 
 export async function confirmIdea(ideaId: string, ideaText: string): Promise<Chat> {
-  const res = await fetch(`${BASE}/api/ideas/confirm`, {
+  const res = await fetch(`${API_BASE}/api/ideas/confirm`, {
     method: "POST",
     headers: await authHeaders(),
     body: JSON.stringify({ idea_id: ideaId, idea_text: ideaText }),
@@ -187,7 +187,7 @@ export async function confirmIdea(ideaId: string, ideaText: string): Promise<Cha
 }
 
 export async function listIdeas(): Promise<Idea[]> {
-  const res = await fetch(`${BASE}/api/ideas`, {
+  const res = await fetch(`${API_BASE}/api/ideas`, {
     headers: await authHeaders(),
   });
   const data = await handleResponse<{ ideas: Idea[] }>(res);
@@ -195,7 +195,7 @@ export async function listIdeas(): Promise<Idea[]> {
 }
 
 export async function deleteIdea(ideaId: string): Promise<void> {
-  const res = await fetch(`${BASE}/api/ideas/${ideaId}`, {
+  const res = await fetch(`${API_BASE}/api/ideas/${ideaId}`, {
     method: "DELETE",
     headers: await authHeaders(),
   });

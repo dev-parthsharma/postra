@@ -2,6 +2,7 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
+import { API_BASE } from "../../lib/apiBase"; 
 
 interface NavItem {
   to: string;
@@ -143,9 +144,7 @@ function InstagramStrip({ userId, plan, onRequireUpgrade }: { userId: string | u
               const { data: { session } } = await supabase.auth.getSession();
               if (!session) throw new Error("User session expired. Please log in again.");
 
-              const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
-
-              const res = await fetch(`${API_URL}/api/integrations/instagram/connect`, {
+              const res = await fetch(`${API_BASE}/api/integrations/instagram/connect`, {
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",

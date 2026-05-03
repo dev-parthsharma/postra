@@ -9,8 +9,7 @@
 // `stage` is derived by the backend from message history.
 
 import { supabase } from "./supabase";
-
-const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+import { API_BASE } from "./apiBase";
 
 async function authHeaders(): Promise<HeadersInit> {
   const {
@@ -67,7 +66,7 @@ export interface ChatDetail {
 
 /** Load a chat and its full message history, ordered by sequence */
 export async function getChat(chatId: string): Promise<ChatDetail> {
-  const res = await fetch(`${BASE}/api/chat/${chatId}`, {
+  const res = await fetch(`${API_BASE}/api/chat/${chatId}`, {
     headers: await authHeaders(),
   });
   return handleResponse<ChatDetail>(res);
@@ -84,7 +83,7 @@ export async function sendMessage(
   content: string,
   intent?: string
 ): Promise<{ user_message: ChatMessage; ai_message: ChatMessage }> {
-  const res = await fetch(`${BASE}/api/chat/${chatId}/message`, {
+  const res = await fetch(`${API_BASE}/api/chat/${chatId}/message`, {
     method: "POST",
     headers: await authHeaders(),
     body: JSON.stringify({ content, intent }),
@@ -99,7 +98,7 @@ export async function saveSelection(body: {
   caption?: string;
   script?: string;
 }): Promise<{ stage: ChatStage; user_message: ChatMessage; ai_message: ChatMessage }> {
-  const res = await fetch(`${BASE}/api/chat/select`, {
+  const res = await fetch(`${API_BASE}/api/chat/select`, {
     method: "POST",
     headers: await authHeaders(),
     body: JSON.stringify(body),
@@ -112,7 +111,7 @@ export async function editScriptWithAI(
   currentScript: string, 
   prompt: string
 ): Promise<{ updated_script: string }> {
-  const res = await fetch(`${BASE}/api/chat/${chatId}/edit-script`, {
+  const res = await fetch(`${API_BASE}/api/chat/${chatId}/edit-script`, {
     method: "POST",
     headers: await authHeaders(),
     body: JSON.stringify({ current_script: currentScript, prompt }),
@@ -121,7 +120,7 @@ export async function editScriptWithAI(
 }
 
 export async function unlockScriptApi(chatId: string): Promise<{ script: string }> {
-  const res = await fetch(`${BASE}/api/chat/${chatId}/unlock-script`, {
+  const res = await fetch(`${API_BASE}/api/chat/${chatId}/unlock-script`, {
     method: "POST",
     headers: await authHeaders(),
   });

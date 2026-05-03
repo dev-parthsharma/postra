@@ -6,6 +6,7 @@ import { supabase } from "../lib/supabase";
 import { Spinner } from "../components/Spinner";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
+import { API_BASE } from "../lib/apiBase"; 
 
 interface PostData {
   id: string;
@@ -601,8 +602,7 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
     setManualPublishing(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
-      const res = await fetch(`${API_URL}/api/integrations/instagram/manual-publish/${post!.id}`, {
+      const res = await fetch(`${API_BASE}/api/integrations/instagram/manual-publish/${post!.id}`, {
         method: "POST",
         headers: { Authorization: `Bearer ${session?.access_token}` },
       });
@@ -624,8 +624,7 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
     setIsPublishing(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
-      const res = await fetch(`${API_URL}/api/integrations/instagram/publish/${post!.id}`, {
+      const res = await fetch(`${API_BASE}/api/integrations/instagram/publish/${post!.id}`, {
         method: "POST",
         headers: { Authorization: `Bearer ${session?.access_token}`, "Content-Type": "application/json" },
       });
