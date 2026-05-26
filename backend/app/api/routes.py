@@ -133,13 +133,6 @@ async def generate_ideas(
     user_id: str = Depends(get_current_user_id),
     supabase=Depends(get_supabase),
 ):
-    """
-    Returns structured ideas:
-    {
-      "recommended": { "idea": str, "why_it_works": str, "win_score": int, ...db fields },
-      "alternatives": [ {...}, {...} ]
-    }
-    """
     try:
         result = await ideas_service.handle_generate_ideas(supabase, user_id)
         return result
@@ -170,18 +163,9 @@ async def save_user_idea(
     user_id: str = Depends(get_current_user_id),
     supabase=Depends(get_supabase),
 ):
-    """
-    Validate idea text BEFORE saving to the database.
-
-    Responses:
-      200 → { idea }                                   ← VALID, saved
-      200 → { idea, warning, suggestion }              ← CONFUSED, saved with warning
-      422 → { detail: { error, type } }                ← INVALID, NOT saved
-    """
     try:
         idea = await ideas_service.handle_save_user_idea(supabase, user_id, body.idea)
         return {"idea": idea}
-
     except IdeaInvalid:
         raise HTTPException(
             status_code=422,
@@ -191,7 +175,6 @@ async def save_user_idea(
                 "message": "That doesn't look like a real idea. Write something meaningful.",
             },
         )
-
     except IdeaConfused as e:
         from app.integrations.queries import insert_ideas
         saved = insert_ideas(supabase, user_id, [body.idea.strip()], source="user")
@@ -203,7 +186,6 @@ async def save_user_idea(
             "message": "Bhai ye kya likh diya 😂 — this idea is a bit vague.",
             "suggestion": "Do you want me to help clarify this idea?",
         }
-
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -214,10 +196,6 @@ async def improve_idea(
     user_id: str = Depends(get_current_user_id),
     supabase=Depends(get_supabase),
 ):
-    """
-    Improve an existing idea using AI (Gemini → Groq fallback).
-    Returns: { improved_idea: str, why_it_works: str, win_score: int }
-    """
     try:
         profile = get_user_profile(supabase, user_id) or {}
         niche = profile.get("niche", "Lifestyle")
@@ -229,24 +207,10 @@ async def improve_idea(
             language=language,
         )
         return result
-
     except RuntimeError as e:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "ai_unavailable",
-                "message": "AI is temporarily unavailable. Please try again later.",
-            },
-        )
+        raise HTTPException(status_code=503, detail={"error": "ai_unavailable", "message": "AI is temporarily unavailable."})
     except Exception as e:
-        print("IMPROVE IDEA ERROR:", str(e))
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "ai_unavailable",
-                "message": "AI is temporarily unavailable. Please try again later.",
-            },
-        )
+        raise HTTPException(status_code=503, detail={"error": "ai_unavailable", "message": "AI is temporarily unavailable."})
 
 
 @router.patch("/ideas/favourite")
@@ -270,10 +234,6 @@ def confirm_idea(
     user_id: str = Depends(get_current_user_id),
     supabase=Depends(get_supabase),
 ):
-    """
-    Create a chat from an already-saved idea.
-    Idea was validated at save time — no re-validation needed.
-    """
     try:
         chat = ideas_service.handle_confirm_idea(
             supabase, user_id, body.idea_id, body.idea_text
@@ -281,16 +241,15 @@ def confirm_idea(
         return {"chat": chat}
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
+
+
+# 🟢 FIX: This route MUST be defined BEFORE /ideas/{idea_id} to prevent 405 Method Not Allowed error
 @router.post("/ideas/one-click")
 async def one_click_generate(
     body: OneClickPostRequest,
     user_id: str = Depends(get_current_user_id),
     supabase=Depends(get_supabase),
 ):
-    """
-    Magic Create: Automatically generates Hook, Script, Caption (and optional Guides) in one go.
-    """
     try:
         chat = await ideas_service.handle_one_click_post(
             supabase, user_id, body.idea_text, body.with_guides
@@ -300,6 +259,7 @@ async def one_click_generate(
         print("ONE CLICK ERROR:", str(e))
         raise HTTPException(status_code=400, detail=str(e))
     
+
 @router.patch("/ideas/{idea_id}")
 def update_idea_route(
     idea_id: str,
@@ -307,7 +267,6 @@ def update_idea_route(
     user_id: str = Depends(get_current_user_id),
     supabase=Depends(get_supabase),
 ):
-
     try:
         result = ideas_service.handle_update_idea(
             supabase, 
@@ -321,6 +280,7 @@ def update_idea_route(
         return result
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 
 @router.get("/ideas")
 def list_ideas(
