@@ -1316,3 +1316,89 @@ async def handle_unlock_script_content(supabase, chat_id: str, user_id: str) -> 
     upsert_post(supabase, user_id, chat_id, idea_id=chat["idea_id"], script=raw_script, status="draft")
 
     return {"script": raw_script}
+
+async def handle_one_click_post(supabase, user_id: str, idea_text: str, with_guides: bool) -> dict:
+    profile = get_user_profile(supabase, user_id) or {}
+    plan = profile.get("plan", "free").lower()
+    language = profile.get("language", "english")
+    niche = profile.get("niche", "Lifestyle")
+    tone = profile.get("tone", "Casual & fun")
+
+    # ── Plan Validations ──
+    if plan == "free":
+        raise ValueError("One-Click Auto Generation is not available on the Free plan.")
+    if with_guides and plan != "pro":
+        raise ValueError("Shooting and Editing guides are only available on the Pro plan.")
+
+    # 1. Generate EVERYTHING via single Gemini call
+    guide_instruction = (
+        '"editing_guide": "<detailed text overlay, pacing, cuts>",\n  "shooting_guide": "<camera angles, lighting, acting tips>"'
+        if with_guides else '"editing_guide": null,\n  "shooting_guide": null'
+    )
+    
+    prompt = f"""You are an elite Instagram content strategist.
+Niche: {niche} | Tone: {tone} | Language: {'Hinglish' if language == 'hinglish' else 'English'}
+Post Idea: "{idea_text}"
+
+Task: Create a COMPLETE, highly engaging Instagram post package for this idea.
+STRICT RULES:
+1. The `caption` MUST be in PURE ENGLISH and include 5-8 hashtags at the end.
+2. The `script` must include bracketed instructions for delivery (e.g., [Speak excitedly]).
+3. Return ONLY valid JSON. No markdown wrappers.
+
+Format:
+{{
+  "hook": "<one punchy line>",
+  "script": "<full spoken script with a CTA at the end>",
+  "caption": "<engaging caption with hashtags>",
+  {guide_instruction}
+}}"""
+
+    from app.services.llm_service import generate_content_gemini_first
+    raw = generate_content_gemini_first(prompt).strip()
+    
+    # Clean JSON
+    if raw.startswith("```"):
+        lines = raw.split("\n")
+        if lines[0].startswith("```"): lines = lines[1:]
+        if lines and lines[-1].startswith("```"): lines = lines[:-1]
+        raw = "\n".join(lines).strip()
+    match = re.search(r'\{.*\}', raw, re.DOTALL)
+    if match: raw = match.group()
+    
+    content_data = json.loads(raw)
+
+    # 2. Validate & Save Idea
+    await validate_idea_text(idea_text)
+    saved_idea = insert_ideas(supabase, user_id, [idea_text.strip()], source="user")[0]
+    idea_id = saved_idea["id"]
+
+    # 3. Create Chat
+    title = idea_text.split("\n")[0].strip()[:100]
+    chat_data = create_chat(supabase, user_id, idea_id, title)
+    chat_id = chat_data["id"]
+
+    # 4. Save to Posts Table (Ready status)
+    upsert_post(
+        supabase, user_id, chat_id, idea_id,
+        hook=content_data.get("hook", ""),
+        script=content_data.get("script", ""),
+        caption=content_data.get("caption", ""),
+        editing_guide=content_data.get("editing_guide") if with_guides else None,
+        shooting_guide=content_data.get("shooting_guide") if with_guides else None,
+        status="ready"
+    )
+
+    # 5. Populate Chat Messages (So UI doesn't look empty)
+    seq = get_next_sequence(supabase, chat_id)
+    intro_text = "I have auto-generated your complete post package! 🚀" if language != "hinglish" else "Maine aapke liye poora post package auto-generate kar diya hai! 🚀"
+    
+    insert_message(supabase, chat_id=chat_id, sequence=seq, content=intro_text, source="assistant", msg_type="text")
+    
+    seq += 1
+    insert_message(supabase, chat_id=chat_id, sequence=seq, content="Show me the completed draft.", source="user", msg_type="text")
+
+    seq += 1
+    insert_message(supabase, chat_id=chat_id, sequence=seq, content="Here is your final post content. You can review it in the Preview tab!", source="assistant", msg_type="text")
+
+    return chat_data

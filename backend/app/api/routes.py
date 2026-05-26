@@ -70,6 +70,10 @@ class ConfirmIdeaRequest(BaseModel):
     idea_id: str
     idea_text: str
 
+class OneClickPostRequest(BaseModel):
+    idea_text: str = Field(..., min_length=1, max_length=1000)
+    with_guides: bool = False
+
 class ImproveIdeaRequest(BaseModel):
     idea_id: str
     idea_text: str = Field(..., min_length=1, max_length=500)
@@ -276,6 +280,24 @@ def confirm_idea(
         )
         return {"chat": chat}
     except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+@router.post("/ideas/one-click")
+async def one_click_generate(
+    body: OneClickPostRequest,
+    user_id: str = Depends(get_current_user_id),
+    supabase=Depends(get_supabase),
+):
+    """
+    Magic Create: Automatically generates Hook, Script, Caption (and optional Guides) in one go.
+    """
+    try:
+        chat = await ideas_service.handle_one_click_post(
+            supabase, user_id, body.idea_text, body.with_guides
+        )
+        return {"chat": chat}
+    except Exception as e:
+        print("ONE CLICK ERROR:", str(e))
         raise HTTPException(status_code=400, detail=str(e))
     
 @router.patch("/ideas/{idea_id}")

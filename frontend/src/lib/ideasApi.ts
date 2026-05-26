@@ -201,3 +201,16 @@ export async function deleteIdea(ideaId: string): Promise<void> {
   });
   await handleResponse<void>(res);
 }
+
+export async function generateOneClickPost(
+  ideaText: string,
+  withGuides: boolean
+): Promise<Chat> {
+  const res = await fetch(`${API_BASE}/api/ideas/one-click`, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ idea_text: ideaText, with_guides: withGuides }),
+  });
+  const data = await handleResponse<{ chat: Chat }>(res);
+  return data.chat;
+}

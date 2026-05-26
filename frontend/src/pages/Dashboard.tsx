@@ -65,6 +65,7 @@ export default function Dashboard() {
           </p>
         </div>
 
+        {/* 🟢 CHANGED: Generate Idea is now Create Post */}
         <button
           type="button"
           onClick={() => setShowNewPost(true)}
@@ -73,7 +74,7 @@ export default function Dashboard() {
           <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
           </svg>
-          Generate Idea
+          Create Post
         </button>
       </div>
 
@@ -81,7 +82,7 @@ export default function Dashboard() {
       {error && (
         <div className="mb-6 bg-red-50 dark:bg-red-500/[0.08] border border-red-100 dark:border-red-500/20 rounded-xl px-4 py-3 flex items-center gap-3">
           <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="text-red-500 flex-shrink-0">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77-1.333.192 3 1.732 3z" />
           </svg>
           <p className="text-sm text-red-600 dark:text-red-400 font-medium">
             Couldn't load some dashboard data. Please refresh.
@@ -110,6 +111,7 @@ export default function Dashboard() {
         />
       </div>
 
+      {/* MODAL IS TRIGGERED HERE */}
       {showNewPost && (
         <NewPostModal
           onClose={() => setShowNewPost(false)}
