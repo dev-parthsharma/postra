@@ -206,7 +206,7 @@ export async function generateOneClickPost(
   ideaText: string,
   withGuides: boolean
 ): Promise<Chat> {
-  const res = await fetch(`${API_BASE}/api/ideas/one-click`, {
+  const res = await fetch(`${API_BASE}/api/post/magic-create`, {
     method: "POST",
     headers: await authHeaders(),
     body: JSON.stringify({ idea_text: ideaText, with_guides: withGuides }),
