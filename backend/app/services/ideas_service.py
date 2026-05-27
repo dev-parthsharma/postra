@@ -1330,47 +1330,55 @@ async def handle_one_click_post(supabase, user_id: str, idea_text: str, with_gui
     if with_guides and plan != "pro":
         raise ValueError("Shooting and Editing guides are only available on the Pro plan.")
 
-    # 🟢 FIX: Bulletproof formatting using Headings instead of JSON
-    guide_instruction = (
-        "\n### EDITING GUIDE\n<detailed text overlay, pacing, cuts>\n\n### SHOOTING GUIDE\n<camera angles, lighting, acting tips>"
-        if with_guides else ""
-    )
-    
+    # ── Explicit Language Splitting ──
+    spoken_lang = "Hinglish (a natural mix of Hindi and English words written in the English alphabet)" if language == "hinglish" else "English"
+
+    guide_section = ""
+    if with_guides:
+        guide_section = "\n[SHOOTING_GUIDE]\nProvide lighting, angles, and acting tips.\n\n[EDITING_GUIDE]\nProvide text overlays, pacing, and audio/music tips."
+
+    # 🟢 FIX: Used exact [TAGS] for bulletproof parsing and explicit language rules
     prompt = f"""You are an elite Instagram content strategist.
-Niche: {niche} | Tone: {tone} | Language: {'Hinglish' if language == 'hinglish' else 'English'}
+Niche: {niche} | Tone: {tone}
 Post Idea: "{idea_text}"
 
-Task: Create a COMPLETE, highly engaging Instagram post package for this idea.
-STRICT RULES:
-1. The `caption` MUST be in PURE ENGLISH and include 5-8 hashtags at the end.
-2. The `script` must include bracketed instructions for delivery (e.g., [Speak excitedly]).
-3. DO NOT output JSON. You MUST use exactly the headings below to separate your content.
+Task: Create a COMPLETE, highly engaging Instagram post package.
+DO NOT use JSON. You MUST format your response using EXACTLY these bracketed tags:
 
-Format to follow EXACTLY:
-### HOOK
-<one punchy line>
+[HOOK]
+Write a 1-line hook in {spoken_lang}.
 
-### SCRIPT
-<full spoken script with a CTA at the end>
+[SCRIPT]
+Write the spoken video script in {spoken_lang}. Include vocal cues like (excitedly) but NO camera angles. Keep it concise.
 
-### CAPTION
-<engaging caption with hashtags>{guide_instruction}"""
+[CAPTION]
+Write the caption in STRICTLY PURE ENGLISH. Include 5-8 hashtags at the end.{guide_section}
+
+Ensure the response is fully completed and not cut off. Be punchy and highly engaging.
+"""
 
     from app.services.llm_service import generate_content_gemini_first
     raw = generate_content_gemini_first(prompt).strip()
-    
-    # 🟢 FIX: Safe Regex Extraction (Never fails like JSON)
-    def extract_section(text, header):
-        # Match from the header up to the next '###' or end of string
-        pattern = rf"{header}\s*(.*?)(?=\n###|$)"
+
+    # Clean markdown if AI accidentally adds it
+    if raw.startswith("```"):
+        lines = raw.split("\n")
+        if lines[0].startswith("```"): lines = lines[1:]
+        if lines and lines[-1].startswith("```"): lines = lines[:-1]
+        raw = "\n".join(lines).strip()
+
+    # 🟢 FIX: Safe Regex Extraction using Bracket Tags
+    def extract_tag(text, tag):
+        # Matches [TAG] or [TAG]: and grabs everything until the next line starting with [ or end of text
+        pattern = rf"\[{tag}\]:?\s*(.*?)(?=\n\[|$)"
         match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
         return match.group(1).strip() if match else ""
 
-    hook = extract_section(raw, "### HOOK")
-    script = extract_section(raw, "### SCRIPT")
-    caption = extract_section(raw, "### CAPTION")
-    editing_guide = extract_section(raw, "### EDITING GUIDE") if with_guides else None
-    shooting_guide = extract_section(raw, "### SHOOTING GUIDE") if with_guides else None
+    hook = extract_tag(raw, "HOOK")
+    script = extract_tag(raw, "SCRIPT")
+    caption = extract_tag(raw, "CAPTION")
+    editing_guide = extract_tag(raw, "EDITING_GUIDE") if with_guides else None
+    shooting_guide = extract_tag(raw, "SHOOTING_GUIDE") if with_guides else None
 
     # Failsafe if AI completely ignores headers
     if not hook and not script and not caption:
