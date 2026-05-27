@@ -1330,12 +1330,12 @@ async def handle_one_click_post(supabase, user_id: str, idea_text: str, with_gui
     if with_guides and plan != "pro":
         raise ValueError("Shooting and Editing guides are only available on the Pro plan.")
 
-    # 1. Generate EVERYTHING via single Gemini call
     guide_instruction = (
         '"editing_guide": "<detailed text overlay, pacing, cuts>",\n  "shooting_guide": "<camera angles, lighting, acting tips>"'
         if with_guides else '"editing_guide": null,\n  "shooting_guide": null'
     )
     
+    # 🟢 FIX: Added strict rule 4 to force \n instead of raw enters
     prompt = f"""You are an elite Instagram content strategist.
 Niche: {niche} | Tone: {tone} | Language: {'Hinglish' if language == 'hinglish' else 'English'}
 Post Idea: "{idea_text}"
@@ -1345,6 +1345,7 @@ STRICT RULES:
 1. The `caption` MUST be in PURE ENGLISH and include 5-8 hashtags at the end.
 2. The `script` must include bracketed instructions for delivery (e.g., [Speak excitedly]).
 3. Return ONLY valid JSON. No markdown wrappers.
+4. MUST USE \\n FOR NEWLINES. DO NOT USE ACTUAL RAW LINE BREAKS INSIDE THE JSON STRINGS.
 
 Format:
 {{
@@ -1357,16 +1358,27 @@ Format:
     from app.services.llm_service import generate_content_gemini_first
     raw = generate_content_gemini_first(prompt).strip()
     
-    # Clean JSON
+    # Clean JSON Markdown
     if raw.startswith("```"):
         lines = raw.split("\n")
         if lines[0].startswith("```"): lines = lines[1:]
         if lines and lines[-1].startswith("```"): lines = lines[:-1]
         raw = "\n".join(lines).strip()
+        
     match = re.search(r'\{.*\}', raw, re.DOTALL)
     if match: raw = match.group()
     
-    content_data = json.loads(raw)
+    # 🟢 FIX: Added strict=False so Python doesn't crash on unescaped raw newlines
+    try:
+        content_data = json.loads(raw, strict=False)
+    except json.JSONDecodeError as e:
+        print(f"JSON Parsing failed even with strict=False: {e}\nRaw output: {raw}")
+        # Failsafe fallback
+        content_data = {
+            "hook": idea_text[:50] + "...",
+            "script": "Failed to format script. Please generate manually in chat.",
+            "caption": "Failed to format caption. Please generate manually in chat.",
+        }
 
     # 2. Validate & Save Idea
     await validate_idea_text(idea_text)
@@ -1389,7 +1401,7 @@ Format:
         status="ready"
     )
 
-    # 5. Populate Chat Messages (So UI doesn't look empty)
+    # 5. Populate Chat Messages
     seq = get_next_sequence(supabase, chat_id)
     intro_text = "I have auto-generated your complete post package! 🚀" if language != "hinglish" else "Maine aapke liye poora post package auto-generate kar diya hai! 🚀"
     
