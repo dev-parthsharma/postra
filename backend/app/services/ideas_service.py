@@ -1330,12 +1330,12 @@ async def handle_one_click_post(supabase, user_id: str, idea_text: str, with_gui
     if with_guides and plan != "pro":
         raise ValueError("Shooting and Editing guides are only available on the Pro plan.")
 
+    # 🟢 FIX: Bulletproof formatting using Headings instead of JSON
     guide_instruction = (
-        '"editing_guide": "<detailed text overlay, pacing, cuts>",\n  "shooting_guide": "<camera angles, lighting, acting tips>"'
-        if with_guides else '"editing_guide": null,\n  "shooting_guide": null'
+        "\n### EDITING GUIDE\n<detailed text overlay, pacing, cuts>\n\n### SHOOTING GUIDE\n<camera angles, lighting, acting tips>"
+        if with_guides else ""
     )
     
-    # 🟢 FIX: Added strict rule 4 to force \n instead of raw enters
     prompt = f"""You are an elite Instagram content strategist.
 Niche: {niche} | Tone: {tone} | Language: {'Hinglish' if language == 'hinglish' else 'English'}
 Post Idea: "{idea_text}"
@@ -1344,41 +1344,39 @@ Task: Create a COMPLETE, highly engaging Instagram post package for this idea.
 STRICT RULES:
 1. The `caption` MUST be in PURE ENGLISH and include 5-8 hashtags at the end.
 2. The `script` must include bracketed instructions for delivery (e.g., [Speak excitedly]).
-3. Return ONLY valid JSON. No markdown wrappers.
-4. MUST USE \\n FOR NEWLINES. DO NOT USE ACTUAL RAW LINE BREAKS INSIDE THE JSON STRINGS.
+3. DO NOT output JSON. You MUST use exactly the headings below to separate your content.
 
-Format:
-{{
-  "hook": "<one punchy line>",
-  "script": "<full spoken script with a CTA at the end>",
-  "caption": "<engaging caption with hashtags>",
-  {guide_instruction}
-}}"""
+Format to follow EXACTLY:
+### HOOK
+<one punchy line>
+
+### SCRIPT
+<full spoken script with a CTA at the end>
+
+### CAPTION
+<engaging caption with hashtags>{guide_instruction}"""
 
     from app.services.llm_service import generate_content_gemini_first
     raw = generate_content_gemini_first(prompt).strip()
     
-    # Clean JSON Markdown
-    if raw.startswith("```"):
-        lines = raw.split("\n")
-        if lines[0].startswith("```"): lines = lines[1:]
-        if lines and lines[-1].startswith("```"): lines = lines[:-1]
-        raw = "\n".join(lines).strip()
-        
-    match = re.search(r'\{.*\}', raw, re.DOTALL)
-    if match: raw = match.group()
-    
-    # 🟢 FIX: Added strict=False so Python doesn't crash on unescaped raw newlines
-    try:
-        content_data = json.loads(raw, strict=False)
-    except json.JSONDecodeError as e:
-        print(f"JSON Parsing failed even with strict=False: {e}\nRaw output: {raw}")
-        # Failsafe fallback
-        content_data = {
-            "hook": idea_text[:50] + "...",
-            "script": "Failed to format script. Please generate manually in chat.",
-            "caption": "Failed to format caption. Please generate manually in chat.",
-        }
+    # 🟢 FIX: Safe Regex Extraction (Never fails like JSON)
+    def extract_section(text, header):
+        # Match from the header up to the next '###' or end of string
+        pattern = rf"{header}\s*(.*?)(?=\n###|$)"
+        match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+        return match.group(1).strip() if match else ""
+
+    hook = extract_section(raw, "### HOOK")
+    script = extract_section(raw, "### SCRIPT")
+    caption = extract_section(raw, "### CAPTION")
+    editing_guide = extract_section(raw, "### EDITING GUIDE") if with_guides else None
+    shooting_guide = extract_section(raw, "### SHOOTING GUIDE") if with_guides else None
+
+    # Failsafe if AI completely ignores headers
+    if not hook and not script and not caption:
+        hook = idea_text[:100]
+        script = raw  # dump everything in script so user doesn't lose it
+        caption = "Please generate caption separately."
 
     # 2. Validate & Save Idea
     await validate_idea_text(idea_text)
@@ -1393,11 +1391,11 @@ Format:
     # 4. Save to Posts Table (Ready status)
     upsert_post(
         supabase, user_id, chat_id, idea_id,
-        hook=content_data.get("hook", ""),
-        script=content_data.get("script", ""),
-        caption=content_data.get("caption", ""),
-        editing_guide=content_data.get("editing_guide") if with_guides else None,
-        shooting_guide=content_data.get("shooting_guide") if with_guides else None,
+        hook=hook,
+        script=script,
+        caption=caption,
+        editing_guide=editing_guide,
+        shooting_guide=shooting_guide,
         status="ready"
     )
 
