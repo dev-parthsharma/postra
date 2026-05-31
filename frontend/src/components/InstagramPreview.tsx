@@ -1,4 +1,5 @@
 // frontend/src/components/InstagramPreview.tsx
+// Cleaned V2 Preview: Bypasses chats/messages. Adds 2-column edit overlay modal + auto AI improve & safety confirmations.
 
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
@@ -7,6 +8,7 @@ import { Spinner } from "../components/Spinner";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import { API_BASE } from "../lib/apiBase"; 
+import { editScriptWithAI, unlockScriptApi } from "../lib/postApi"; // 🟢 AI script edit import kiya
 
 interface PostData {
   id: string;
@@ -46,7 +48,7 @@ const renderMarkdownToHtml = (text: string): string => {
     .replace(/$/, "</p>");
 };
 
-// ─── INLINE EDITABLE FIELD COMPONENT ───
+// ─── INLINE EDITABLE FIELD COMPONENT (V2.1: CLICKABLE BOX + SMART AUTO-REWRITE PROMPT) ───
 function EditableField({
   value,
   onSave,
@@ -54,6 +56,7 @@ function EditableField({
   color,
   multiline = true,
   disabled = false,
+  chatId,
 }: {
   value: string | null;
   onSave: (newValue: string) => Promise<void>;
@@ -61,114 +64,210 @@ function EditableField({
   color: string;
   multiline?: boolean;
   disabled?: boolean;
+  chatId?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value || "");
   const [saving, setSaving] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  
+  // AI States
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [isAiLoading, setIsAiLoading] = useState(false);
+
+  // Safety Confirmation Overlay
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   useEffect(() => {
     setDraft(value || "");
   }, [value]);
 
-  useEffect(() => {
-    if (editing && textareaRef.current) {
-      textareaRef.current.focus();
-      // Auto-resize
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = textareaRef.current.scrollHeight + "px";
-    }
-  }, [editing]);
-
-  const handleSave = async () => {
-    if (draft === (value || "")) {
-      setEditing(false);
-      return;
-    }
-    setSaving(true);
+  const handleAiRefine = async () => {
+    if (!chatId) return;
+    setIsAiLoading(true);
     try {
-      await onSave(draft);
+      // 🟢 FIX: Prompt ko active aur creative banaya taaki Groq backend fallback ko strictly modify aur polish kare
+      const promptToUse = aiPrompt.trim() 
+        ? aiPrompt.trim() 
+        : `Rewrite this text to make it extremely catchy, punchy, and highly engaging for an Instagram Reel. Use better vocabulary, stronger phrasing, and active voice. Keep it concise.`;
+      
+      const res = await editScriptWithAI(chatId, draft, promptToUse);
+      if (res?.updated_script) {
+        setDraft(res.updated_script);
+        setAiPrompt(""); // Clear prompt box on success
+      }
+    } catch (err) {
+      alert("AI refinement failed. Please try again.");
     } finally {
-      setSaving(false);
-      setEditing(false);
+      setIsAiLoading(false);
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
-      setDraft(value || "");
-      setEditing(false);
-    }
-    // Ctrl/Cmd + Enter to save
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-      handleSave();
-    }
+  const openEditorModal = () => {
+    if (disabled) return;
+    setDraft(value || "");
+    setEditing(true);
   };
-
-  if (editing) {
-    return (
-      <div className="space-y-2">
-        <textarea
-          ref={textareaRef}
-          value={draft}
-          onChange={(e) => {
-            setDraft(e.target.value);
-            e.target.style.height = "auto";
-            e.target.style.height = e.target.scrollHeight + "px";
-          }}
-          onKeyDown={handleKeyDown}
-          rows={multiline ? 6 : 2}
-          className="w-full text-slate-800 dark:text-zinc-200 text-sm sm:text-[15px] leading-relaxed bg-slate-50 dark:bg-zinc-800 border border-slate-300 dark:border-zinc-600 rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
-          style={{ minHeight: multiline ? "120px" : "60px", overflow: "hidden" }}
-        />
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-all disabled:opacity-50"
-          >
-            {saving ? <Spinner size={12} /> : (
-              <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-            )}
-            {saving ? "Saving..." : "Save"}
-          </button>
-          <button
-            onClick={() => { setDraft(value || ""); setEditing(false); }}
-            className="px-3 py-1.5 bg-slate-100 dark:bg-zinc-700 hover:bg-slate-200 dark:hover:bg-zinc-600 text-slate-600 dark:text-zinc-300 text-xs font-semibold rounded-lg transition-all"
-          >
-            Cancel
-          </button>
-          <span className="text-[10px] text-slate-400 dark:text-zinc-500 ml-auto">Ctrl+Enter to save • Esc to cancel</span>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="group relative">
-      <div className="text-slate-700 dark:text-zinc-300 text-sm sm:text-[15px] leading-relaxed">
+      {/* 🟢 Clickable View Area: Hover aur Click karne par edit modal trigger hoga */}
+      <div 
+        onClick={openEditorModal}
+        className={`text-slate-700 dark:text-zinc-300 text-sm sm:text-[15px] leading-relaxed p-4 rounded-2xl border border-dashed border-transparent hover:border-slate-200 dark:hover:border-zinc-800 hover:bg-slate-50/50 dark:hover:bg-zinc-900/10 transition-all duration-200 ${
+          disabled ? "" : "cursor-pointer"
+        }`}
+      >
         {value ? (
           <div
-            className="prose prose-sm dark:prose-invert max-w-none"
+            className="prose prose-sm dark:prose-invert max-w-none pointer-events-none" // pointer-events-none selection block se bachata hai
             dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(value) }}
           />
         ) : (
-          <span className="text-slate-400 italic">Not generated yet.</span>
+          <span className="text-slate-400 italic">Not generated yet. Click to write.</span>
         )}
       </div>
-      
-      {!disabled && (
-        <button
-          onClick={() => setEditing(true)}
-          className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 flex items-center gap-1 px-2 py-1 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 text-[10px] font-semibold rounded-lg shadow-sm transition-all"
-        >
-          <svg width="10" height="10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-          </svg>
-          Edit
-        </button>
+
+      {/* ── 2-COLUMN FULL MODAL OVERLAY ── */}
+      {editing && (
+        <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl w-full max-w-4xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[85vh]">
+            
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-100 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-850/50 flex justify-between items-center">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                <span>📝</span> Edit {label}
+              </h3>
+              <button 
+                onClick={() => setEditing(false)}
+                className="p-1.5 rounded-xl hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-500 transition-colors"
+              >
+                ✖
+              </button>
+            </div>
+
+            {/* 2-Columns Body */}
+            <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50/20 dark:bg-zinc-950/20">
+              
+              {/* Left Column: Manual Text Editor */}
+              <div className="flex flex-col space-y-3">
+                <span className="text-xs font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
+                  ✍️ Manual Edit
+                </span>
+                <textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  placeholder={`Write your draft ${label} here...`}
+                  className="w-full flex-1 min-h-[220px] md:min-h-[300px] resize-none bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 text-[14.5px] leading-relaxed outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all dark:text-white"
+                />
+              </div>
+
+              {/* Right Column: AI Assistant Refinement */}
+              <div className="flex flex-col space-y-3 border-t md:border-t-0 md:border-l border-slate-200 dark:border-zinc-800 pt-5 md:pt-0 md:pl-6 relative">
+                <span className="text-xs font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
+                  ✨ AI Refinement
+                </span>
+                
+                <div className="flex-1 flex flex-col justify-between space-y-4">
+                  <div className="space-y-3">
+                    <p className="text-xs text-slate-500 dark:text-zinc-400 leading-normal">
+                      Write some instructions below to let Postra refine your draft (e.g. *'make it funnier'*, *'add bold hooks'*, *'include emojis'*).
+                    </p>
+                    <textarea
+                      value={aiPrompt}
+                      onChange={(e) => setAiPrompt(e.target.value)}
+                      placeholder="e.g. rewrite this using casual hindi words..."
+                      className="w-full h-24 resize-none bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl p-3.5 text-xs outline-none focus:border-indigo-500 transition-all dark:text-white"
+                      disabled={isAiLoading}
+                    />
+                    <p className="text-[10px] text-slate-400 dark:text-zinc-500 italic">
+                      💡 Tip: Leave the box blank to let AI automatically improve flow and engagement!
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleAiRefine}
+                    disabled={isAiLoading}
+                    className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md shadow-indigo-500/10 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                  >
+                    {isAiLoading ? <Spinner size={14} /> : "🪄 Improve with AI"}
+                  </button>
+                </div>
+
+                {/* AI loading spinner overlay */}
+                {isAiLoading && (
+                  <div className="absolute inset-0 bg-white/50 dark:bg-zinc-900/50 backdrop-blur-[1px] rounded-2xl flex flex-col items-center justify-center">
+                    <Spinner size={24} />
+                    <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 mt-2">AI is editing your text...</span>
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-slate-50 dark:bg-zinc-850/50 border-t border-slate-150 dark:border-zinc-800 flex justify-end gap-3">
+              <button
+                onClick={() => setEditing(false)}
+                className="px-5 py-2.5 rounded-xl text-xs font-medium text-slate-600 dark:text-zinc-400 hover:bg-slate-200 dark:hover:bg-zinc-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => setShowConfirmModal(true)} 
+                className="px-6 py-2.5 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-500/15 transition-all"
+              >
+                Confirm Changes
+              </button>
+            </div>
+
+          </div>
+
+          {/* ── NESTED DOUBLE CONFIRMATION OVERLAY (Save cannot be undone) ── */}
+          {showConfirmModal && (
+            <div className="fixed inset-0 z-[130] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl w-full max-w-sm p-6 text-center space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
+                <div className="w-12 h-12 bg-amber-50 dark:bg-amber-500/10 text-amber-500 dark:text-amber-400 rounded-full flex items-center justify-center mx-auto text-xl">
+                  ⚠️
+                </div>
+                <div className="space-y-1.5">
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">Save Changes?</h3>
+                  <p className="text-xs text-slate-500 dark:text-zinc-400 leading-relaxed">
+                    This will overwrite your existing draft content. <span className="font-bold text-red-500">Changes cannot be undone</span>. Do you want to proceed?
+                  </p>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmModal(false)}
+                    className="flex-1 py-2.5 rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 font-semibold text-xs"
+                  >
+                    No, Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setShowConfirmModal(false);
+                      setSaving(true);
+                      try {
+                        await onSave(draft);
+                        setEditing(false);
+                      } catch (err) {
+                        alert("Save failed. Please try again.");
+                      } finally {
+                        setSaving(false);
+                      }
+                    }}
+                    className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold text-xs shadow-md shadow-indigo-500/20 active:scale-95 transition-all"
+                  >
+                    Yes, Save
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
       )}
     </div>
   );
@@ -254,7 +353,7 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
   const isPremium = plan === "starter" || plan === "pro";
   const isPublished = post?.status === "published";
 
-  // ─── 1. LOAD POST DATA ───
+  // ─── 1. LOAD POST DATA (V2 DIRECT POST QUERY) ───
   useEffect(() => {
     if (!chatId) return;
     const loadData = async () => {
@@ -262,16 +361,19 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       try {
+        // 🟢 V2: Query by direct posts.id instead of chat_id
         const { data: postData, error: postErr } = await supabase
-          .from("posts").select("*").eq("chat_id", chatId).single();
+          .from("posts")
+          .select("*")
+          .eq("id", chatId)
+          .single();
         if (postErr || !postData) throw postErr;
 
         let finalPost: PostData = { ...postData };
         if (postData.cover_image) finalPost.cover_image = postData.cover_image;
 
-        const { data: chatData } = await supabase
-          .from("chats").select("title").eq("id", chatId).maybeSingle();
-        if (chatData) finalPost.title = chatData.title;
+        // 🟢 V2: Set title from post hook directly (removed obsolete chats query)
+        finalPost.title = postData.hook;
 
         try {
           const { data: mediaLinks, error: mediaErr } = await supabase
@@ -295,7 +397,7 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
           .eq("user_id", user.id).maybeSingle();
         if (igData?.instagram_username) setUsername(igData.instagram_username);
       } catch (err) {
-        console.error("Fatal load error:", err);
+        console.error("Fatal load error in preview:", err);
       } finally {
         setLoading(false);
       }
@@ -338,18 +440,15 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
     setShowVideoModal(true);
   };
 
-  // FIX #2: Video select karte hi modal band, video URL set karo — loading ka wait nahi
   const handleVideoSelect = async (item: MediaItem) => {
     if (isPublished) return;
     if (!post || !post.id) return;
     if (!item.type.includes("video")) { alert("Please select a video file."); return; }
 
-    // ✅ Turant modal band karo aur video set karo
     setShowVideoModal(false);
     setIsPlaying(false);
     setPost((prev) => prev ? { ...prev, video_url: item.file_url } : null);
 
-    // Background me DB update
     try {
       const { data: allLinks } = await supabase.from("post_media").select("id, media_id").eq("post_id", post.id);
       if (allLinks && allLinks.length > 0) {
@@ -376,7 +475,6 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
     if (!validTypes.includes(file.type)) { alert("Only MP4, WebM, and MOV videos are allowed."); return; }
     if (file.size > 50 * 1024 * 1024) { alert("File too large (Max 50MB)."); return; }
 
-    // ✅ Modal turant band karo, background me upload
     setShowVideoModal(false);
     setVideoUploading(true);
 
@@ -639,23 +737,6 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
     }
   };
 
-  const renderMarkdownToHtml = (text: string): string => {
-    return text
-      // Bold: **text** → <strong>
-      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-      // Bullet points: lines starting with * or - → proper list items
-      .replace(/^[\*\-]\s+(.*)$/gm, "<li>$1</li>")
-      // Wrap consecutive <li> in <ul>
-      .replace(/(<li>.*<\/li>\n?)+/g, (match) => `<ul style="margin:8px 0 8px 20px; list-style:disc;">${match}</ul>`)
-      // Double newline → paragraph break
-      .replace(/\n\n/g, "</p><p style='margin-bottom:12px;'>")
-      // Single newline → line break
-      .replace(/\n/g, "<br/>")
-      // Wrap in paragraph
-      .replace(/^/, "<p style='margin-bottom:12px;'>")
-      .replace(/$/, "</p>");
-  };
-
   const exportToPDF = async () => {
     if (!post) return;
     setExporting(true);
@@ -664,7 +745,6 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
       const exportEl = exportRef.current;
       if (!exportEl) return;
 
-      // Temporarily show the hidden export div
       exportEl.style.display = "block";
       exportEl.style.position = "fixed";
       exportEl.style.top = "0";
@@ -672,7 +752,7 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
       exportEl.style.zIndex = "-1";
       exportEl.style.width = "800px";
 
-      await new Promise((r) => setTimeout(r, 100)); // let DOM render
+      await new Promise((r) => setTimeout(r, 100));
 
       const canvas = await html2canvas(exportEl, {
         scale: 2,
@@ -698,7 +778,6 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
       let yPos = 0;
       let remainingH = imgH;
 
-      // Multi-page: agar content lamba ho to agle page pe continue karo
       while (remainingH > 0) {
         pdf.addImage(imgData, "PNG", 0, -yPos, imgW, imgH);
         remainingH -= pageH;
@@ -706,7 +785,6 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
         if (remainingH > 0) pdf.addPage();
       }
 
-      // ✅ Auto filename with post title
       const safeTitle = post.title
         ? post.title.replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-").substring(0, 40)
         : "content";
@@ -898,7 +976,6 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
             </div>
           </div>
 
-          {/* ── FIX #3: Hook section — "No hook selected yet." dikhaye, "idea" nahi ── */}
           <section className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-4 sm:p-6 rounded-2xl shadow-sm print:shadow-none print:border-none print:p-0">
             <div className="flex items-center justify-between mb-2 sm:mb-3">
               <h3 className="text-[11px] sm:text-xs font-bold text-indigo-500 uppercase tracking-wider flex items-center gap-2">
@@ -906,7 +983,6 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
                 The Hook
               </h3>
             </div>
-            {/* FIX #1: Hook editable — lekin sirf tab dikhaye jab hook actually hai */}
             {post?.hook ? (
               <div className="text-slate-800 dark:text-zinc-200 text-sm sm:text-[15px] leading-relaxed font-semibold">
                 <EditableField
@@ -916,15 +992,14 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
                   color="indigo"
                   multiline={false}
                   disabled={isPublished}
+                  chatId={chatId} // 🟢 Passed chatId to let editing overlay work
                 />
               </div>
             ) : (
-              // FIX #3: "No hook selected yet." — koi idea placeholder nahi
               <p className="text-slate-400 italic text-sm">No hook selected yet.</p>
             )}
           </section>
 
-          {/* ── FIX #1: Script Editable ── */}
           <section className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-4 sm:p-6 rounded-2xl shadow-sm print:shadow-none print:border-none print:p-0">
             <h3 className="text-[11px] sm:text-xs font-bold text-orange-500 uppercase tracking-wider mb-2 sm:mb-3 flex items-center gap-2">
               <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-orange-500"></span>
@@ -936,10 +1011,10 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
               label="Script"
               color="orange"
               disabled={isPublished}
+              chatId={chatId} // 🟢 Passed chatId to let editing overlay work
             />
           </section>
 
-          {/* ── FIX #1: Caption Editable ── */}
           <section className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-4 sm:p-6 rounded-2xl shadow-sm print:shadow-none print:border-none print:p-0">
             <h3 className="text-[11px] sm:text-xs font-bold text-emerald-500 uppercase tracking-wider mb-2 sm:mb-3 flex items-center gap-2">
               <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-500"></span>
@@ -951,10 +1026,10 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
               label="Caption"
               color="emerald"
               disabled={isPublished}
+              chatId={chatId} // 🟢 Passed chatId to let editing overlay work
             />
           </section>
 
-          {/* ── FIX #1: Shooting Guide Editable ── */}
           <section className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-4 sm:p-6 rounded-2xl shadow-sm print:shadow-none print:border-none print:p-0">
             <h3 className="text-[11px] sm:text-xs font-bold text-blue-500 uppercase tracking-wider mb-2 sm:mb-3 flex items-center gap-2">
               <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500"></span>
@@ -981,11 +1056,11 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
                 label="Shooting Guide"
                 color="blue"
                 disabled={isPublished}
+                chatId={chatId} // 🟢 Passed chatId to let editing overlay work
               />
             )}
           </section>
 
-          {/* ── FIX #1: Editing Guide Editable ── */}
           <section className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-4 sm:p-6 rounded-2xl shadow-sm print:shadow-none print:border-none print:p-0">
             <h3 className="text-[11px] sm:text-xs font-bold text-purple-500 uppercase tracking-wider mb-2 sm:mb-3 flex items-center gap-2">
               <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-purple-500"></span>
@@ -1012,6 +1087,7 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
                 label="Editing Guide"
                 color="purple"
                 disabled={isPublished}
+                chatId={chatId} // 🟢 Passed chatId to let editing overlay work
               />
             )}
           </section>
@@ -1061,7 +1137,6 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
                         onClick={() => handleVideoSelect(item)}
                         className="group relative rounded-2xl overflow-hidden aspect-[9/16] border-2 cursor-pointer border-slate-200 dark:border-zinc-700 hover:shadow-md hover:border-indigo-400 transition-all bg-black"
                       >
-                        {/* FIX #2: Video thumbnail load nahi hoga — poster use karo; instant select */}
                         <video
                           src={item.file_url + "#t=0.5"}
                           preload="metadata"
@@ -1203,7 +1278,6 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
 
       {/* ── HIDDEN EXPORT CONTAINER ── */}
       <div ref={exportRef} style={{ display: "none" }} className="absolute top-[-9999px] left-[-9999px] w-[800px] bg-white p-12 text-black font-sans">
-        {/* Header */}
         <div className="flex items-center justify-between mb-8 pb-6 border-b-2 border-indigo-100">
           <div>
             <h1 className="text-3xl font-black text-indigo-600">Postra</h1>
@@ -1212,7 +1286,6 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
           {post?.title && <p className="text-lg font-semibold text-gray-700 text-right max-w-xs">{post.title}</p>}
         </div>
 
-        {/* Hook */}
         {post?.hook && (
           <div className="mb-8">
             <h2 className="text-xs font-bold text-indigo-500 uppercase tracking-widest mb-2">The Hook</h2>
@@ -1220,7 +1293,6 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
           </div>
         )}
 
-        {/* Script */}
         {post?.script && (
           <div className="mb-8">
             <h2 className="text-xs font-bold text-orange-500 uppercase tracking-widest mb-2">Full Script</h2>
@@ -1228,7 +1300,6 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
           </div>
         )}
 
-        {/* Caption */}
         {post?.caption && (
           <div className="mb-8">
             <h2 className="text-xs font-bold text-emerald-500 uppercase tracking-widest mb-2">Caption & Hashtags</h2>
@@ -1236,7 +1307,6 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
           </div>
         )}
 
-        {/* Shooting Guide */}
         {post?.shooting_guide && plan !== "free" && (
           <div className="mb-8">
             <h2 className="text-xs font-bold text-blue-500 uppercase tracking-widest mb-3">Shooting Guide 🎥</h2>
@@ -1248,7 +1318,6 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
           </div>
         )}
 
-        {/* Editing Guide */}
         {post?.editing_guide && plan === "pro" && (
           <div className="mb-8">
             <h2 className="text-xs font-bold text-purple-500 uppercase tracking-widest mb-3">Editing Guide ✂️</h2>
@@ -1260,7 +1329,6 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
           </div>
         )}
 
-        {/* Footer */}
         <div className="mt-12 pt-4 border-t border-gray-100 text-center">
           <p className="text-xs text-gray-400">Generated by Postra • postra.app</p>
         </div>
@@ -1284,7 +1352,7 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
 
       {/* ── PUBLISHING OVERLAY ── */}
       {isPublishing && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-zinc-950/80 backdrop-blur-xl animate-in fade-in duration-300 px-4">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-zinc-950/80 backdrop-blur-xl animate-in fade-in duration-200 px-4">
           <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl flex flex-col items-center">
             <div className="relative w-20 h-20 mb-6">
               <div className="absolute inset-0 rounded-full border-[5px] border-slate-100 dark:border-zinc-800"></div>

@@ -1,4 +1,5 @@
 // frontend/src/pages/Drafts.tsx
+// Simplified V2: Direct post drafts viewer (No chats table dependence, clean content preview cards).
 
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -7,19 +8,15 @@ import DashboardLayout from "../components/layout/DashboardLayout";
 
 interface Draft {
   id: string;
-  chat_id: string | null;
   idea_id: string | null;
   hook: string | null;
-  script: string | null; // <-- NEW
+  script: string | null;
   caption: string | null;
-  status: "draft" | "ready" | "idea";
+  status: "draft" | "ready" | "published";
   created_at: string;
   updated_at: string;
   idea?: string | null;
-  chat_title?: string | null;
 }
-
-type FilterStatus = "all" | "draft" | "ready";
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -31,137 +28,68 @@ function timeAgo(dateStr: string): string {
   return `${days}d ago`;
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const cfg: Record<string, { label: string; className: string }> = {
-    draft:   { label: "Draft",    className: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
-    ready:   { label: "Ready",    className: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" },
-    idea:    { label: "Idea",     className: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
-  };
-  const c = cfg[status] ?? cfg.draft;
-  return (
-    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${c.className}`}>
-      {c.label}
-    </span>
-  );
-}
-
-function StageBar({ hasHook, hasScript, hasCaption }: { hasHook: boolean; hasScript: boolean; hasCaption: boolean }) {
-  // 🟢 FIX: Ab yahan 3 steps hain
-  const steps =[
-    { label: "Hook",     done: hasHook },
-    { label: "Script",   done: hasScript },
-    { label: "Caption",  done: hasCaption },
-  ];
-  return (
-    <div className="flex items-center gap-1 mt-2">
-      {steps.map((s, i) => (
-        <div key={s.label} className="flex items-center gap-1">
-          <div className={`flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border transition-all ${
-            s.done
-              ? "bg-orange-500/10 border-orange-500/30 text-orange-400"
-              : "bg-zinc-800 border-zinc-700 text-zinc-600"
-          }`}>
-            {s.done && (
-              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                <path d="M20 6L9 17l-5-5" />
-              </svg>
-            )}
-            {s.label}
-          </div>
-          {i < steps.length - 1 && <div className="w-2 h-px bg-zinc-700" />}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function DraftCard({ draft, onContinue, onDelete }: {
   draft: Draft;
   onContinue: (draft: Draft) => void;
   onDelete: (id: string) => void;
 }) {
-  const title = draft.chat_title || draft.idea || "Untitled draft";
+  const title = draft.hook || draft.idea || "Untitled draft";
   
-  // 🟢 FIX: Agar hook ka text exactly chat_title ya idea ke barabar hai, toh matlab temporary hook hai. Usko true mat maano.
-  const hasRealHook = !!draft.hook && draft.hook !== draft.chat_title && draft.hook !== draft.idea;
-  const hasScript = !!draft.script;
-  const hasCaption = !!draft.caption;
-
-  const completedSteps = [hasRealHook, hasScript, hasCaption].filter(Boolean).length;
+  // Extract and clean script lines for card preview
+  const scriptPreview = draft.script 
+    ? draft.script.replace(/Hook:\s*[\s\S]*?Body:\s*/i, "").replace(/CTA:\s*[\s\S]*$/i, "").substring(0, 120).trim() + "..."
+    : null;
 
   return (
-    <div className="group bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-2xl p-5 transition-all duration-200">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3 flex-1 min-w-0">
-          <div className={`mt-0.5 w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
-            draft.status === "ready" ? "bg-emerald-500/10" : "bg-amber-500/10"
-          }`}>
-            {draft.status === "ready" ? (
-              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} className="text-emerald-400">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            ) : (
+    <div className="group bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-2xl p-5 transition-all duration-200 flex flex-col justify-between h-full space-y-4">
+      
+      <div className="space-y-3 flex-1">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center flex-shrink-0">
               <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} className="text-amber-400">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
               </svg>
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            {/* The Improved Idea / Title */}
-            <p className="text-zinc-100 text-sm font-medium leading-snug line-clamp-2">{title}</p>
-            
-            {/* The Hook (if REAL hook selected) */}
-            {hasRealHook && (
-              <p className="text-zinc-400 text-xs mt-1.5 truncate">
-                <span className="text-zinc-500 font-semibold mr-1">Hook:</span> 
-                {draft.hook}
-              </p>
-            )}
-            
-            <StageBar hasHook={hasRealHook} hasScript={hasScript} hasCaption={hasCaption} />
+            </div>
+            <div>
+              <p className="text-zinc-100 text-sm font-semibold leading-snug line-clamp-2">{title}</p>
+              <span className="text-zinc-600 text-[10px] uppercase font-bold tracking-wider mt-1 block">
+                {timeAgo(draft.updated_at)}
+              </span>
+            </div>
           </div>
         </div>
-        <div className="flex flex-col items-end gap-2 flex-shrink-0">
-          <StatusBadge status={draft.status} />
-          <span className="text-zinc-600 text-xs">{timeAgo(draft.updated_at)}</span>
-        </div>
-      </div>
 
-      {/* Caption preview */}
-      {draft.caption && (
-        <div className="mt-3 p-3 bg-zinc-800/50 rounded-xl border border-zinc-700/50">
-          <p className="text-zinc-400 text-xs line-clamp-2">{draft.caption}</p>
-        </div>
-      )}
+        {/* Script Content Preview Snippet */}
+        {draft.script && (
+          <div className="p-3 bg-zinc-850/40 rounded-xl border border-zinc-800/60 text-xs text-zinc-400 space-y-1">
+            <span className="text-[9px] font-bold text-orange-400 dark:text-orange-500/70 uppercase tracking-wider block">Script Preview</span>
+            <p className="line-clamp-2 leading-relaxed">{scriptPreview}</p>
+          </div>
+        )}
 
-      {/* Progress bar */}
-      <div className="mt-4 flex items-center gap-3">
-        <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-orange-500 to-orange-400 rounded-full transition-all duration-500"
-            style={{ width: `${(completedSteps / 3) * 100}%` }}
-          />
-        </div>
-        <span className="text-zinc-600 text-xs flex-shrink-0">{completedSteps}/3 steps</span>
+        {/* Caption Content Preview Snippet */}
+        {draft.caption && (
+          <div className="p-3 bg-zinc-850/40 rounded-xl border border-zinc-800/60 text-xs text-zinc-400 space-y-1">
+            <span className="text-[9px] font-bold text-emerald-400 dark:text-emerald-500/70 uppercase tracking-wider block">Caption Preview</span>
+            <p className="line-clamp-2 leading-relaxed">{draft.caption}</p>
+          </div>
+        )}
       </div>
 
       {/* Actions */}
-      <div className="mt-4 flex items-center gap-2">
-        {draft.chat_id ? (
-          <button
-            type="button"
-            onClick={() => onContinue(draft)}
-            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 active:scale-95 text-white text-xs font-semibold transition-all duration-150 shadow-md shadow-orange-500/20"
-          >
-            {draft.status === "ready" ? "View Post →" : "Continue →"}
-          </button>
-        ) : (
-          <div className="flex-1" />
-        )}
+      <div className="flex items-center gap-2 pt-2">
+        <button
+          type="button"
+          onClick={() => onContinue(draft)}
+          className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 active:scale-95 text-white text-xs font-semibold transition-all duration-150 shadow-md shadow-orange-500/20"
+        >
+          Open Editor & Preview →
+        </button>
         <button
           type="button"
           onClick={() => onDelete(draft.id)}
-          className="p-2 rounded-xl bg-zinc-800 hover:bg-red-500/10 text-zinc-600 hover:text-red-400 border border-zinc-700 hover:border-red-500/30 transition-all duration-150"
+          className="p-2.5 rounded-xl bg-zinc-800 hover:bg-red-500/10 text-zinc-600 hover:text-red-400 border border-zinc-700 hover:border-red-500/30 transition-all duration-150"
           title="Delete draft"
         >
           <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -175,16 +103,15 @@ function DraftCard({ draft, onContinue, onDelete }: {
 
 function SkeletonCard() {
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-3">
+    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
       <div className="flex gap-3">
         <div className="w-9 h-9 rounded-xl bg-zinc-800 animate-pulse flex-shrink-0" />
         <div className="flex-1 space-y-2">
           <div className="h-4 bg-zinc-800 rounded animate-pulse w-3/4" />
           <div className="h-3 bg-zinc-800 rounded animate-pulse w-1/2" />
         </div>
-        <div className="h-6 w-14 bg-zinc-800 rounded-full animate-pulse" />
       </div>
-      <div className="h-1.5 bg-zinc-800 rounded-full animate-pulse" />
+      <div className="h-12 bg-zinc-800 rounded-xl animate-pulse w-full" />
     </div>
   );
 }
@@ -193,74 +120,94 @@ export default function DraftsPage() {
   const navigate = useNavigate();
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<FilterStatus>("all");
-  const[search, setSearch] = useState("");
+  const [search, setSearch] = useState("");
+
+  // ── Safety delete state ──
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // 🟢 FIX: Added `script` to the select query
+      // 🟢 V2 Fix: Removed chats(title) relationship to avoid db crash
       const { data } = await supabase
         .from("posts")
-        .select("id, chat_id, idea_id, hook, script, caption, status, created_at, updated_at, ideas(idea), chats(title)")
+        .select("id, idea_id, hook, script, caption, status, created_at, updated_at, ideas(idea)")
         .eq("user_id", user.id)
-        .in("status",["draft", "ready"])
+        .eq("status", "draft") // Strictly load drafts waiting to be published
         .order("updated_at", { ascending: false });
 
       if (data) {
         setDrafts(data.map((d: any) => ({
           ...d,
           idea: d.ideas?.idea ?? null,
-          chat_title: d.chats?.title ?? null,
         })));
       }
       setLoading(false);
     };
     load();
-  },[]);
+  }, []);
 
-  const handleDelete = async (id: string) => {
-    setDrafts((prev) => prev.filter((d) => d.id !== id));
-    await supabase.from("posts").delete().eq("id", id);
+  // ── 🟢 SAFETY DELETE HANDLERS ──
+  const handleDeleteTrigger = (id: string) => {
+    setDeleteTargetId(id); // Open confirmation warning modal first
   };
 
-  const handleContinue = (draft: Draft) => {
-    if (draft.chat_id) {
-       // Agar ready hai, toh direct preview kholo
-       const suffix = draft.status === "ready" ? "?view=preview" : "";
-       navigate(`/chat/${draft.chat_id}${suffix}`);
+  const confirmDelete = async (id: string) => {
+    setDeleteTargetId(null);
+
+    // Optimistic UI Update: Screen se turant disappear karo
+    const previousDrafts = [...drafts];
+    setDrafts((prev) => prev.filter((d) => d.id !== id));
+
+    try {
+      // 🟢 Added .select() to verify if rows were actually deleted
+      const { data, error } = await supabase
+        .from("posts")
+        .delete()
+        .eq("id", id)
+        .select();
+      
+      if (error) throw error;
+
+      // 🟢 Agar data length 0 hai, matlab RLS ne silently request ignore kar di
+      if (!data || data.length === 0) {
+        throw new Error(
+          "Operation was silently blocked by database RLS. Ensure you have run the 'DELETE' RLS policy on the 'posts' table in Supabase."
+        );
+      }
+    } catch (err: any) {
+      // Deletion fail hone par rollback aur explicit alert
+      setDrafts(previousDrafts);
+      alert("Database Error: Failed to delete draft.\n\nReason: " + (err.message || err));
     }
   };
 
+  const handleContinue = (draft: Draft) => {
+    // Direct navigation using direct post ID (which bypasses old chat references)
+    navigate(`/chat/${draft.id}`);
+  };
+
   const filtered = drafts.filter((d) => {
-    if (filter !== "all" && d.status !== filter) return false;
     if (search) {
       const q = search.toLowerCase();
-      return (d.chat_title ?? "").toLowerCase().includes(q) ||
+      return (d.hook ?? "").toLowerCase().includes(q) ||
              (d.idea ?? "").toLowerCase().includes(q) ||
-             (d.hook ?? "").toLowerCase().includes(q) ||
              (d.caption ?? "").toLowerCase().includes(q);
     }
     return true;
   });
 
-  const counts = {
-    all: drafts.length,
-    draft: drafts.filter((d) => d.status === "draft").length,
-    ready: drafts.filter((d) => d.status === "ready").length,
-  };
-
   return (
     <DashboardLayout>
       <div className="max-w-3xl mx-auto">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-slate-900">Drafts</h1>
-          <p className="text-slate-500 text-sm mt-1">Posts you're working on — pick up where you left off.</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Drafts</h1>
+          <p className="text-slate-500 dark:text-zinc-400 text-sm mt-1">Posts you're working on — review and publish them to Instagram.</p>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3 mb-6">
+        <div className="mb-6">
           <div className="relative flex-1">
             <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -270,24 +217,8 @@ export default function DraftsPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search drafts…"
-              className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-700 placeholder-slate-400 outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 transition-all"
+              className="w-full pl-9 pr-4 py-2.5 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl text-sm text-slate-700 dark:text-zinc-200 placeholder-slate-400 dark:placeholder-zinc-500 outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 transition-all"
             />
-          </div>
-          <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
-            {(["all", "draft", "ready"] as FilterStatus[]).map((f) => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setFilter(f)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all capitalize ${
-                  filter === f
-                    ? "bg-white text-slate-900 shadow-sm"
-                    : "text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                {f} {counts[f] > 0 && <span className="ml-1 opacity-60">({counts[f]})</span>}
-              </button>
-            ))}
           </div>
         </div>
 
@@ -297,15 +228,15 @@ export default function DraftsPage() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-20">
-            <div className="w-16 h-16 mx-auto rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
-              <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} className="text-slate-300">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-slate-100 dark:bg-zinc-800 flex items-center justify-center mb-4">
+              <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} className="text-slate-300 dark:text-zinc-600">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
             </div>
-            <p className="text-slate-500 font-medium">
+            <p className="text-slate-500 dark:text-zinc-400 font-medium">
               {search ? "No drafts match your search" : "No drafts yet"}
             </p>
-            <p className="text-slate-400 text-sm mt-1">
+            <p className="text-slate-400 dark:text-zinc-500 text-sm mt-1">
               {search ? "Try a different search term" : "Start creating a post from the dashboard"}
             </p>
             {!search && (
@@ -325,12 +256,46 @@ export default function DraftsPage() {
                 key={draft.id}
                 draft={draft}
                 onContinue={handleContinue}
-                onDelete={handleDelete}
+                onDelete={handleDeleteTrigger} // 🟢 Calls safety trigger modal first
               />
             ))}
           </div>
         )}
       </div>
+
+      {/* ── 🟢 DELETE DOUBLE-CONFIRMATION POPUP OVERLAY ── */}
+      {deleteTargetId && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl w-full max-w-sm p-6 text-center space-y-4 shadow-xl animate-in zoom-in-95 duration-200">
+            <div className="w-12 h-12 bg-red-50 dark:bg-red-500/10 text-red-500 dark:text-red-400 rounded-full flex items-center justify-center mx-auto text-xl">
+              ⚠️
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">Delete Draft?</h3>
+              <p className="text-xs text-slate-500 dark:text-zinc-400 leading-relaxed">
+                Are you sure you want to delete this draft? This will permanently remove this post package and <span className="font-bold text-red-500">cannot be undone</span> [4].
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteTargetId(null)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 font-semibold text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => confirmDelete(deleteTargetId)}
+                className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold text-xs shadow-md shadow-red-500/20 active:scale-95 transition-all"
+              >
+                Delete Permanently
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </DashboardLayout>
   );
 }

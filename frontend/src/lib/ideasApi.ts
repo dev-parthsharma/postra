@@ -214,3 +214,26 @@ export async function generateOneClickPost(
   const data = await handleResponse<{ chat: Chat }>(res);
   return data.chat;
 }
+
+export async function generateSingleIdea(): Promise<{ id: string; idea: string; why_it_works: string; win_score: number }> {
+  const res = await fetch(`${API_BASE}/api/ideas/generate-single`, {
+    method: "POST",
+    headers: await authHeaders(),
+  });
+  return handleResponse(res);
+}
+
+export async function validateIdea(ideaText: string): Promise<{
+  valid: boolean;
+  niche_match: boolean;
+  detected_niche: string;
+  user_niche: string;
+  message?: string;
+}> {
+  const res = await fetch(`${API_BASE}/api/ideas/validate-concept`, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ idea_text: ideaText }),
+  });
+  return handleResponse(res);
+}

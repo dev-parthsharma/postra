@@ -86,6 +86,45 @@ function WinScore({ score }: { score: number | null | undefined }) {
   );
 }
 
+// ── Placeholder Modal (Temporary Chat Bypass) ───────────────────────────────────
+
+interface PlaceholderModalProps {
+  ideaText: string;
+  onClose: () => void;
+}
+
+function PlaceholderModal({ ideaText, onClose }: PlaceholderModalProps) {
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/50 dark:bg-black/75 backdrop-blur-sm flex items-center justify-center px-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="w-full max-w-md bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-2xl overflow-hidden p-6 text-center space-y-4">
+        <div className="w-12 h-12 bg-orange-100 dark:bg-orange-500/10 rounded-full flex items-center justify-center mx-auto text-xl">
+          ✨
+        </div>
+        <div className="space-y-2">
+          <h3 className="text-slate-900 dark:text-white font-bold text-base">Post Creation Coming Soon</h3>
+          <p className="text-slate-500 dark:text-zinc-400 text-xs leading-relaxed">
+            We are replacing the old chat flow with a much faster, one-click automated creation system.
+          </p>
+        </div>
+        <div className="bg-slate-50 dark:bg-zinc-800 border border-slate-100 dark:border-zinc-700 rounded-xl p-3 text-left">
+          <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-1">Selected Idea</p>
+          <p className="text-slate-700 dark:text-zinc-300 text-xs italic">"{ideaText}"</p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-xs font-semibold transition-all shadow-md shadow-orange-500/20"
+        >
+          Got it
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Improve Idea Modal ────────────────────────────────────────────────────────
 
 interface ImproveModalProps {
@@ -701,6 +740,9 @@ export default function IdeasPage() {
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [generatedResult, setGeneratedResult] = useState<GeneratedIdeasResult | null>(null);
 
+  // Temporary popup bypass state
+  const [placeholderTarget, setPlaceholderTarget] = useState<string | null>(null);
+
   // Improve idea modal
   const [improveTarget, setImproveTarget] = useState<Idea | null>(null);
   const generateAbortRef = useRef<AbortController | null>(null);
@@ -806,7 +848,7 @@ const handleGenerate = async () => {
   const handleDelete = async (idea: Idea) => {
     if (idea.in_progress) {
       const confirmed = window.confirm(
-        "This idea has an active chat. Deleting it will also delete the chat and all its messages. Continue?"
+        "Deleting this will clear progress. Continue?"
       );
       if (!confirmed) return;
     }
@@ -828,21 +870,8 @@ const handleGenerate = async () => {
   };
 
   const handleStartChat = async (idea: any) => {
-    try {
-      // 🟢 Agar published hai toh direct preview view mein kholo
-      if (idea.post_status === "published" && idea.chat_id) {
-        navigate(`/chat/${idea.chat_id}?view=preview`);
-        return;
-      }
-      if (idea.in_progress && idea.chat_id) {
-        navigate(`/chat/${idea.chat_id}`);
-      } else {
-        const chat = await confirmIdea(idea.id, idea.idea);
-        navigate(`/chat/${chat.id}`);
-      }
-    } catch (e: unknown) {
-      console.error("Failed to start/continue chat:", e);
-    }
+    // 🟢 Chat page completely bypass ho chuki hai, ab popup trigger hoga
+    setPlaceholderTarget(idea.idea);
   };
 
   // ── Improve idea ──────────────────────────────────────────────────────────
@@ -1084,6 +1113,14 @@ const handleGenerate = async () => {
             ))}
           </div>
         </section>
+      )}
+
+      {/* Placeholder Modal */}
+      {placeholderTarget && (
+        <PlaceholderModal
+          ideaText={placeholderTarget}
+          onClose={() => setPlaceholderTarget(null)}
+        />
       )}
 
       {/* Improve Idea Modal */}

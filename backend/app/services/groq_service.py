@@ -70,11 +70,3 @@ def generate_content_groq(prompt: str, timeout: float = 15.0) -> str:
         max_tokens=1024,
         timeout=timeout,
     )
-
-
-def chat_groq(messages: list[dict], max_tokens: int = 600, timeout: float = 15.0) -> str:
-    """
-    Multi-turn chat: passes the full messages list (system + history + user).
-    Used for: opening message generation, send-message replies, validation.
-    """
-    return _post(messages=messages, max_tokens=max_tokens, timeout=timeout)

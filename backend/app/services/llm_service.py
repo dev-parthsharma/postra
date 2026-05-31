@@ -1,5 +1,4 @@
 # backend/app/services/llm_service.py
-#
 # Generation priority:
 #   1. Groq  (attempt 1)
 #   2. Groq  (attempt 2 — one retry, short delay)

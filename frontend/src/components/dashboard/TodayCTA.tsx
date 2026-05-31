@@ -30,9 +30,8 @@ export default function TodayCTA({ cta, loading }: TodayCTAProps) {
       ? cta.draft.hook
       : cta.draft.idea ?? "Untitled draft";
 
-    const destination = cta.draft.chat_id
-      ? `/chat/${cta.draft.chat_id}`
-      : "/drafts";
+    // 🟢 CHANGED: Redirect drafts to draft index since chat is disabled
+    const destination = "/drafts";
 
     return (
       <div className="bg-gradient-to-r from-indigo-50 to-violet-50 border border-indigo-100 rounded-2xl p-5 flex items-center gap-4 shadow-sm">
@@ -54,11 +53,9 @@ export default function TodayCTA({ cta, loading }: TodayCTAProps) {
     );
   }
 
-  // type === "idea" — navigate to chat if one exists, else to ideas page
+  // type === "idea" — navigate to ideas page
   const ideaText = cta.idea.idea ?? "Saved idea";
-  const ideaDestination = (cta.idea as any).chat_id
-    ? `/chat/${(cta.idea as any).chat_id}`
-    : "/ideas";
+  const ideaDestination = "/ideas";
 
   return (
     <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-100 rounded-2xl p-5 flex items-center gap-4 shadow-sm">

@@ -1,5 +1,4 @@
 # backend/app/integrations/queries.py
-# Supabase DB queries.
 # All functions receive a Supabase client and typed arguments.
 # They raise on error so the service layer decides what HTTP status to return.
 
@@ -18,7 +17,7 @@ def fetch_user_count() -> int:
 # ── Ideas ─────────────────────────────────────────────────────────────────────
 
 def insert_ideas(supabase, user_id: str, ideas: list[str], source: str) -> list[dict]:
-    rows =[
+    rows = [
         {
             "user_id": user_id,
             "idea": idea.strip(),
@@ -45,177 +44,116 @@ def toggle_favourite(supabase, idea_id: str, user_id: str, is_favourite: bool) -
         raise RuntimeError("Idea not found or not owned by user")
     return response.data[0]
 
+
 def get_ideas_with_chat_status(supabase, user_id: str) -> list[dict]:
+    """
+    V2: Fetches drafts and active statuses directly from the posts table.
+    Bypasses chats and message history tables entirely.
+    """
     response = (
         supabase.table("ideas")
-        # 🟢 FIX: `posts(status)` add kiya taaki pata chale post published hai ya nahi
-        .select("*, chats(id), posts(status)")
+        .select("*, posts(id, status)")
         .eq("user_id", user_id)
         .order("is_favourite", desc=True)
         .order("created_at", desc=True)
         .execute()
     )
 
-    ideas = response.data or[]
+    ideas = response.data or []
 
     for idea in ideas:
-        chat = idea.get("chats")
         posts = idea.get("posts")
 
         # normalize
-        if isinstance(chat, list):
-            chat = chat[0] if chat else None
-            
-        # 🟢 FIX: Status extract kar rahe hain
         post_status = None
+        post_id = None
         if isinstance(posts, list) and len(posts) > 0:
             post_status = posts[0].get("status")
+            post_id = posts[0].get("id")
         elif isinstance(posts, dict):
             post_status = posts.get("status")
+            post_id = posts.get("id")
 
-        idea["in_progress"] = 1 if chat else 0
-        idea["chat_id"] = chat.get("id") if chat else None
-        idea["post_status"] = post_status # 🟢 Add status to idea
+        idea["in_progress"] = 1 if post_id else 0
+        idea["post_id"] = post_id
+        idea["chat_id"] = post_id  # Backwards compatibility for frontend
+        idea["post_status"] = post_status 
 
-        idea.pop("chats", None)
         idea.pop("posts", None)
 
     return ideas
 
 
-# ── Chats ─────────────────────────────────────────────────────────────────────
+# ── Posts (Direct Creation & Management) ──────────────────────────────────────
 
-def create_chat(supabase, user_id: str, idea_id: str, title: str) -> dict:
-    # 1. Create the chat session
+def create_draft_post(supabase, user_id: str, idea_id: str, title: str) -> dict:
+    """
+    Creates a new draft directly inside the posts table.
+    Replaces old create_chat logic entirely.
+    """
     response = (
-        supabase.table("chats")
+        supabase.table("posts")
         .insert({
             "user_id": user_id,
-            "idea_id": idea_id,
-            "title": title[:200],
-        })
-        .execute()
-    )
-    if not response.data:
-        raise RuntimeError("Failed to create chat")
-        
-    chat_data = response.data[0]
-    
-    # 2. Auto-create a linked empty Draft in the posts table 
-    # so it immediately appears on the Drafts page
-    try:
-        supabase.table("posts").insert({
-            "user_id": user_id,
-            "chat_id": chat_data["id"],
             "idea_id": idea_id,
             "status": "draft",
             "hook": title[:200],
             "script": "",
             "caption": ""
-        }).execute()
-    except Exception as e:
-        print(f"[create_chat] Failed to auto-create draft post: {e}")
-
-    return chat_data
-
-
-def get_chat_by_id(supabase, chat_id: str, user_id: str) -> Optional[dict]:
-    response = (
-        supabase.table("chats")
-        .select("*")
-        .eq("id", chat_id)
-        .eq("user_id", user_id)
-        .single()
-        .execute()
-    )
-    return response.data
-
-
-def get_chats_for_user(supabase, user_id: str) -> list[dict]:
-    response = (
-        supabase.table("chats")
-        .select("*, ideas(idea)")
-        .eq("user_id", user_id)
-        .order("created_at", desc=True)
-        .execute()
-    )
-    return response.data or[]
-
-
-# ── Messages ──────────────────────────────────────────────────────────────────
-
-def get_messages_for_chat(supabase, chat_id: str) -> list[dict]:
-    response = (
-        supabase.table("messages")
-        .select("*")
-        .eq("chat_id", chat_id)
-        .order("sequence", desc=False)
-        .execute()
-    )
-    return response.data or[]
-
-
-def get_next_sequence(supabase, chat_id: str) -> int:
-    response = (
-        supabase.table("messages")
-        .select("sequence")
-        .eq("chat_id", chat_id)
-        .order("sequence", desc=True)
-        .limit(1)
-        .execute()
-    )
-    if response.data:
-        return response.data[0]["sequence"] + 1
-    return 1
-
-
-def insert_message(
-    supabase,
-    chat_id: str,
-    sequence: int,
-    content: str,
-    source: str,
-    msg_type: str,
-    metadata: Optional[dict] = None,
-) -> dict:
-    response = (
-        supabase.table("messages")
-        .insert({
-            "chat_id":  chat_id,
-            "sequence": sequence,
-            "content":  content,
-            "source":   source,
-            "type":     msg_type,
-            "metadata": metadata,
         })
         .execute()
     )
     if not response.data:
-        raise RuntimeError("Failed to insert message")
+        raise RuntimeError("Failed to create draft post")
     return response.data[0]
 
 
-# ── Posts ─────────────────────────────────────────────────────────────────────
-
-def upsert_post(supabase, user_id: str, chat_id: str, idea_id: str, **fields) -> dict:
-    existing = (
+def get_post_by_id(supabase, post_id: str, user_id: str) -> Optional[dict]:
+    response = (
         supabase.table("posts")
-        .select("id")
-        .eq("chat_id", chat_id)
+        .select("*")
+        .eq("id", post_id)
+        .eq("user_id", user_id)
+        .single()
         .execute()
     )
+    return response.data or None
 
-    row = {"user_id": user_id, "chat_id": chat_id,"idea_id": idea_id, **fields}
+
+def get_drafts_for_user(supabase, user_id: str) -> list[dict]:
+    """Fetches all raw drafts for the user from the posts table."""
+    response = (
+        supabase.table("posts")
+        .select("*, ideas(idea)")
+        .eq("user_id", user_id)
+        .eq("status", "draft")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return response.data or []
+
+
+def upsert_post(supabase, user_id: str, idea_id: str, post_id: Optional[str] = None, **fields) -> dict:
+    """
+    Directly inserts or updates post drafts based on id or idea_id.
+    Completely decoupled from any chat_id constraints.
+    """
+    if post_id:
+        existing = supabase.table("posts").select("id, status").eq("id", post_id).execute()
+    else:
+        existing = supabase.table("posts").select("id, status").eq("idea_id", idea_id).execute()
+
+    row = {"user_id": user_id, "idea_id": idea_id, **fields}
 
     if existing.data:
         if existing.data[0].get("status") == "published":
             return existing.data[0]
         
-        post_id = existing.data[0]["id"]
+        pid = existing.data[0]["id"]
         response = (
             supabase.table("posts")
             .update(row)
-            .eq("id", post_id)
+            .eq("id", pid)
             .execute()
         )
     else:
@@ -226,23 +164,9 @@ def upsert_post(supabase, user_id: str, chat_id: str, idea_id: str, **fields) ->
     return response.data[0]
 
 
-def get_post_for_chat(supabase, chat_id: str) -> Optional[dict]:
-    response = (
-        supabase.table("posts")
-        .select("*")
-        .eq("chat_id", chat_id)
-        .execute()
-    )
-    return response.data[0] if response.data else None
-
-
 # ── Plan / usage ──────────────────────────────────────────────────────────────
 
 def get_user_plan_usage(supabase, user_id: str) -> Optional[dict]:
-    """
-    Returns plan, ideas_used_today, and last_reset_date for the user.
-    Returns None if the profile row doesn't exist.
-    """
     response = (
         supabase.table("user_profile")
         .select("plan, ideas_used_today, last_reset_date")
@@ -254,12 +178,6 @@ def get_user_plan_usage(supabase, user_id: str) -> Optional[dict]:
 
 
 def reset_daily_usage_if_needed(supabase, user_id: str, today: str) -> dict:
-    """
-    If last_reset_date != today, atomically reset ideas_used_today to 0
-    and update last_reset_date to today.
-    Returns the (possibly updated) row: { plan, ideas_used_today, last_reset_date }
-    """
-    # Fetch current state
     response = (
         supabase.table("user_profile")
         .select("plan, ideas_used_today, last_reset_date")
@@ -271,20 +189,13 @@ def reset_daily_usage_if_needed(supabase, user_id: str, today: str) -> dict:
     if not row:
         raise RuntimeError("User profile not found")
 
-    last_reset = row.get("last_reset_date")  # may be a date string "YYYY-MM-DD" or None
-
-    # Normalise: Supabase may return a date object or a string
+    last_reset = row.get("last_reset_date")
     last_reset_str = str(last_reset) if last_reset else None
 
     if last_reset_str != today:
-        # Reset counter for the new day
-        update_resp = (
-            supabase.table("user_profile")
-            .update({"ideas_used_today": 0, "last_reset_date": today})
-            .eq("id", user_id)
-            .execute()
-        )
-        updated = update_resp.data[0] if update_resp.data else {}
+        supabase.table("user_profile").update(
+            {"ideas_used_today": 0, "last_reset_date": today}
+        ).eq("id", user_id).execute()
         return {
             "plan": row.get("plan") or "free",
             "ideas_used_today": 0,
@@ -299,10 +210,6 @@ def reset_daily_usage_if_needed(supabase, user_id: str, today: str) -> dict:
 
 
 def increment_ideas_used_today(supabase, user_id: str) -> None:
-    """
-    Increments ideas_used_today by 1 for the given user.
-    Uses rpc if available; falls back to a read-then-write approach.
-    """
     response = (
         supabase.table("user_profile")
         .select("ideas_used_today")
@@ -321,7 +228,6 @@ def increment_ideas_used_today(supabase, user_id: str) -> None:
 def get_user_profile(supabase, user_id: str) -> Optional[dict]:
     response = (
         supabase.table("user_profile")
-        # ── HERE IS THE FIX: Added "plan" to the select query ──
         .select("niche, tone, style, goal, preferred_language, plan")
         .eq("id", user_id)
         .single()
@@ -330,7 +236,6 @@ def get_user_profile(supabase, user_id: str) -> Optional[dict]:
     if not response.data:
         return None
     data = response.data
-    # Normalise: expose as "language" so service layer stays unchanged
     data["language"] = data.pop("preferred_language", "english") or "english"
     return data
 
@@ -338,7 +243,6 @@ def get_user_profile(supabase, user_id: str) -> Optional[dict]:
 # ── Utility ───────────────────────────────────────────────────────────────────
 
 def delete_idea(supabase, idea_id: str, user_id: str) -> None:
-    # Confirm the idea exists and belongs to this user
     idea_check = (
         supabase.table("ideas")
         .select("id, source")
@@ -353,19 +257,9 @@ def delete_idea(supabase, idea_id: str, user_id: str) -> None:
     if idea.get("source") != "user":
         raise RuntimeError("Only user-written ideas can be deleted")
 
-    # If a chat exists for this idea, delete it first.
-    # Supabase cascade will handle messages → the chat deletion cascades to messages.
-    chat_check = (
-        supabase.table("chats")
-        .select("id")
-        .eq("idea_id", idea_id)
-        .execute()
-    )
-    if chat_check.data:
-        for chat in chat_check.data:
-            supabase.table("chats").delete().eq("id", chat["id"]).execute()
+    # 🟢 V2: Directly delete any linked posts in the posts table
+    supabase.table("posts").delete().eq("idea_id", idea_id).execute()
 
-    # Now delete the idea itself
     response = (
         supabase.table("ideas")
         .delete()
@@ -376,6 +270,7 @@ def delete_idea(supabase, idea_id: str, user_id: str) -> None:
     if not response.data:
         raise RuntimeError("Failed to delete idea")
     
+
 # ── Stats & Streak ────────────────────────────────────────────────────────────
 
 def update_user_streak(supabase, user_id: str) -> dict:
@@ -384,25 +279,21 @@ def update_user_streak(supabase, user_id: str) -> dict:
     today_str = today.isoformat()
     yesterday_str = (today - timedelta(days=1)).isoformat()
     
-    # 1. Aaj ka stat fetch karo
     today_stat = supabase.table("user_stats").select("*").eq("user_id", user_id).eq("stat_date", today_str).execute()
     
     if today_stat.data:
-        # Aaj ka record already hai, bas post_count badha do
         current = today_stat.data[0]
         new_count = current["posts_count"] + 1
         res = supabase.table("user_stats").update({"posts_count": new_count}).eq("id", current["id"]).execute()
         return res.data[0] if res.data else current
         
-    # 2. Kal ka record check karo streak calculate karne ke liye
     yesterday_stat = supabase.table("user_stats").select("*").eq("user_id", user_id).eq("stat_date", yesterday_str).execute()
     
     if yesterday_stat.data and not yesterday_stat.data[0]["is_break"]:
         new_streak = yesterday_stat.data[0]["streak_count"] + 1
     else:
-        new_streak = 1 # Streak break ho gayi thi, naye se start karo
+        new_streak = 1
         
-    # 3. Aaj ka naya record banao
     new_record = {
         "user_id": user_id,
         "stat_date": today_str,

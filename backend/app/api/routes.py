@@ -12,7 +12,6 @@ from app.integrations.queries import (
     insert_ideas,
     toggle_favourite,
     get_ideas_with_chat_status,
-    create_chat,
     get_user_profile,
     delete_idea,
     update_user_streak
@@ -84,10 +83,6 @@ class UpdateIdeaRequest(BaseModel):
     why_it_works: str
     win_score: int
 
-class SendMessageRequest(BaseModel):
-    content: str = Field(..., min_length=1, max_length=2000)
-    intent: Optional[str] = None
-
 class SaveSelectionRequest(BaseModel):
     chat_id:  str
     hook:     Optional[str] = None
@@ -100,6 +95,9 @@ class EditScriptRequest(BaseModel):
 
 class IGConnectRequest(BaseModel):
     fb_access_token: str
+
+class ValidateIdeaRequest(BaseModel):
+    idea_text: str = Field(..., min_length=1, max_length=1000)
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -154,6 +152,31 @@ async def generate_ideas(
         raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
         print("UNEXPECTED ERROR:", str(e))
+        raise HTTPException(status_code=502, detail=str(e))
+    
+@router.post("/ideas/generate-single")
+async def generate_single_idea_endpoint(
+    user_id: str = Depends(get_current_user_id),
+    supabase=Depends(get_supabase),
+):
+    try:
+        result = await ideas_service.handle_generate_single_idea(supabase, user_id)
+        return result
+    except IdeaLimitReached as e:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "limit reached",
+                "message": f"Daily limit reached for {e.plan} plan.",
+                "plan": e.plan,
+                "used": e.used,
+                "limit": e.limit,
+            },
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        print("SINGLE IDEA ENDPOINT ERROR:", str(e))
         raise HTTPException(status_code=502, detail=str(e))
 
 
@@ -305,9 +328,22 @@ def delete_idea_route(
         return {"success": True}
     except RuntimeError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    
+@router.post("/ideas/validate-concept")
+async def validate_concept_endpoint(
+    body: ValidateIdeaRequest,
+    user_id: str = Depends(get_current_user_id),
+    supabase=Depends(get_supabase),
+):
+    try:
+        result = await ideas_service.handle_validate_idea(supabase, user_id, body.idea_text)
+        return result
+    except Exception as e:
+        print("VALIDATION ENDPOINT ERROR:", str(e))
+        raise HTTPException(status_code=502, detail=str(e))
 
 
-# ── Chat ──────────────────────────────────────────────────────────────────────
+# ── Post Management ──────────────────────────────────────────────────────────
 
 @router.get("/chat/{chat_id}")
 async def get_chat(
@@ -315,32 +351,14 @@ async def get_chat(
     user_id: str = Depends(get_current_user_id),
     supabase=Depends(get_supabase),
 ):
+    """Loads metadata and drafts for a direct generated Post."""
     try:
         chat = await ideas_service.handle_get_chat(supabase, chat_id, user_id)
         return chat
     except RuntimeError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        print("CHAT GET ERROR:", str(e))
-        raise HTTPException(status_code=502, detail=str(e))
-
-
-@router.post("/chat/{chat_id}/message")
-async def send_message(
-    chat_id: str,
-    body: SendMessageRequest,
-    user_id: str = Depends(get_current_user_id),
-    supabase=Depends(get_supabase),
-):
-    try:
-        result = await ideas_service.handle_send_message(
-            supabase, chat_id, user_id, body.content, body.intent
-        )
-        return result
-    except RuntimeError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        print("CHAT MESSAGE ERROR:", str(e))
+        print("POST GET ERROR:", str(e))
         raise HTTPException(status_code=502, detail=str(e))
 
 
@@ -374,7 +392,7 @@ async def save_selection(
     except (ValueError, RuntimeError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        print("CHAT SELECT ERROR:", str(e))
+        print("POST SELECT ERROR:", str(e))
         raise HTTPException(status_code=502, detail=str(e))
     
 @router.post("/chat/{chat_id}/edit-script")
@@ -418,7 +436,6 @@ async def connect_instagram(req: IGConnectRequest, request: Request):
     
     try:
         user_resp = supabase.auth.get_user(token)
-        # PYLANCE FIX: Safely check if user object exists before calling .id
         if not user_resp or not user_resp.user:
             raise HTTPException(status_code=401, detail="Invalid or expired token")
             
@@ -448,7 +465,6 @@ async def connect_instagram(req: IGConnectRequest, request: Request):
 
         ig_account_id = None
         
-        # Loop through pages to find the attached IG Business Account
         for page in pages_data["data"]:
             page_id = page["id"]
             page_token = page.get("access_token") 
@@ -462,7 +478,6 @@ async def connect_instagram(req: IGConnectRequest, request: Request):
         if not ig_account_id:
             raise HTTPException(status_code=400, detail="No Instagram Professional Account found. Make sure your IG account is a Creator/Business account and linked to your FB Page.")
 
-        # Get IG Username
         user_resp = await client.get(f"https://graph.facebook.com/v19.0/{ig_account_id}?fields=username&access_token={final_token}")
         user_data = user_resp.json()
         ig_username = user_data.get("username")
@@ -470,7 +485,6 @@ async def connect_instagram(req: IGConnectRequest, request: Request):
         if not ig_username:
             raise HTTPException(status_code=400, detail="Could not fetch Instagram username.")
 
-        # 3. Save to Database (instagram_connections table)
         data_to_save = {
             "user_id": user_id,
             "instagram_user_id": ig_account_id,
@@ -478,7 +492,6 @@ async def connect_instagram(req: IGConnectRequest, request: Request):
             "access_token": final_token,
         }
 
-        # Check if row already exists to Upsert
         existing = supabase.table("instagram_connections").select("id").eq("user_id", user_id).execute()
         
         if existing.data:
@@ -488,23 +501,10 @@ async def connect_instagram(req: IGConnectRequest, request: Request):
 
         return {"success": True, "username": ig_username}
     
-# @router.post("/integrations/instagram/test-publish/{post_id}")
-# async def test_publish_route(
-#     post_id: str,
-#     user_id: str = Depends(get_current_user_id),
-#     supabase=Depends(get_supabase)
-# ):
-    # try:
-    #     result = await publish_post_to_instagram(supabase, user_id, post_id)
-    #     return result
-    # except Exception as e:
-    #     raise HTTPException(status_code=500, detail=str(e))
-    
 @router.post("/integrations/instagram/publish/{post_id}")
 async def publish_route(post_id: str, user_id: str = Depends(get_current_user_id), supabase=Depends(get_supabase)):
     try:
         result = await publish_reel_to_instagram(supabase, user_id, post_id)
-        # 🟢 Premium users ke publish success hote hi streak update kar do
         if result.get("success"):
             update_user_streak(supabase, user_id)
         return result
@@ -518,7 +518,6 @@ async def manual_publish_route(
     supabase=Depends(get_supabase)
 ):
     try:
-        # Update post status to published
         post_resp = supabase.table("posts").update({
             "status": "published",
             "posted_at": datetime.now(timezone.utc).isoformat(),
@@ -527,9 +526,8 @@ async def manual_publish_route(
         if not post_resp.data:
             raise HTTPException(status_code=404, detail="Post not found")
             
-        # Update streak
         stat = update_user_streak(supabase, user_id)
         
         return {"success": True, "message": "Marked as published manually", "streak_count": stat["streak_count"]}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=502, detail=str(e))
