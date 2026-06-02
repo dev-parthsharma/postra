@@ -1,4 +1,6 @@
 // frontend/src/pages/Published.tsx
+// Refactored V2: Direct published posts viewer (No chats table dependence, clean view post previews).
+
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
@@ -6,7 +8,6 @@ import DashboardLayout from "../components/layout/DashboardLayout";
 
 interface PublishedPost {
   id: string;
-  chat_id: string | null;
   idea: string | null;
   hook: string | null;
   caption: string | null;
@@ -39,37 +40,37 @@ function PostCard({ post, onView }: { post: PublishedPost; onView: (post: Publis
   const dateStr = formatPostedDate(post.posted_at || post.created_at);
 
   return (
-    <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden hover:shadow-md transition-all duration-200">
+    <div className="bg-white dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 rounded-2xl shadow-sm overflow-hidden hover:shadow-md transition-all duration-200">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 bg-emerald-50/60 border-b border-emerald-100/60">
+      <div className="flex items-center justify-between px-4 py-3 bg-emerald-50/60 dark:bg-emerald-500/5 border-b border-emerald-100/60 dark:border-emerald-500/10">
         <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded-full bg-emerald-100 border border-emerald-200 flex items-center justify-center">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-emerald-600">
+          <div className="w-5 h-5 rounded-full bg-emerald-100 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 flex items-center justify-center">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-emerald-600 dark:text-emerald-400">
               <path d="M20 6L9 17l-5-5" />
             </svg>
           </div>
-          <span className="text-xs font-semibold text-emerald-700">Published</span>
+          <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">Published</span>
         </div>
-        <span className="text-xs text-slate-400">{dateStr}</span>
+        <span className="text-xs text-slate-400 dark:text-zinc-500">{dateStr}</span>
       </div>
 
       <div className="p-4">
         {/* Hook / Idea */}
-        <p className="text-slate-800 text-sm font-medium leading-snug line-clamp-2">
+        <p className="text-slate-800 dark:text-zinc-100 text-sm font-medium leading-snug line-clamp-2">
           {post.hook || post.idea || "Untitled post"}
         </p>
 
         {/* Caption */}
         {post.caption && (
           <div className="mt-3">
-            <p className={`text-slate-500 text-xs leading-relaxed ${expanded ? "" : "line-clamp-3"}`}>
+            <p className={`text-slate-500 dark:text-zinc-400 text-xs leading-relaxed ${expanded ? "" : "line-clamp-3"}`}>
               {post.caption}
             </p>
             {post.caption.length > 160 && (
               <button
                 type="button"
                 onClick={() => setExpanded((e) => !e)}
-                className="text-indigo-500 text-xs mt-1 hover:underline"
+                className="text-indigo-500 dark:text-indigo-400 text-xs mt-1 hover:underline"
               >
                 {expanded ? "Show less" : "Show more"}
               </button>
@@ -81,12 +82,12 @@ function PostCard({ post, onView }: { post: PublishedPost; onView: (post: Publis
         {post.hashtags && post.hashtags.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5">
             {post.hashtags.slice(0, 6).map((tag) => (
-              <span key={tag} className="text-[11px] px-2 py-0.5 rounded-full bg-slate-50 text-slate-400 border border-slate-100">
+              <span key={tag} className="text-[11px] px-2 py-0.5 rounded-full bg-slate-50 dark:bg-zinc-800 text-slate-400 dark:text-zinc-550 border border-slate-100 dark:border-zinc-850">
                 {tag}
               </span>
             ))}
             {post.hashtags.length > 6 && (
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-50 text-slate-400 border border-slate-100">
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-50 dark:bg-zinc-800 text-slate-400 dark:text-zinc-550 border border-slate-100 dark:border-zinc-850">
                 +{post.hashtags.length - 6}
               </span>
             )}
@@ -98,7 +99,7 @@ function PostCard({ post, onView }: { post: PublishedPost; onView: (post: Publis
           <button
             type="button"
             onClick={() => onView(post)}
-            className="flex-1 text-xs font-semibold px-3 py-2 rounded-lg bg-slate-50 hover:bg-indigo-50 text-slate-600 hover:text-indigo-700 border border-slate-100 hover:border-indigo-200 transition-all"
+            className="flex-1 text-xs font-semibold px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 text-slate-600 dark:text-zinc-300 hover:text-indigo-700 dark:hover:text-indigo-400 border border-slate-100 dark:border-zinc-700 hover:border-indigo-250 transition-all"
           >
             View post →
           </button>
@@ -108,7 +109,7 @@ function PostCard({ post, onView }: { post: PublishedPost; onView: (post: Publis
               const text = [post.hook, post.caption, post.hashtags?.join(" ")].filter(Boolean).join("\n\n");
               navigator.clipboard.writeText(text).catch(() => {});
             }}
-            className="text-xs px-3 py-2 rounded-lg bg-white hover:bg-slate-50 text-slate-400 hover:text-slate-600 border border-slate-100 transition-all"
+            className="text-xs px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-750 text-slate-400 dark:text-zinc-500 hover:text-slate-600 dark:hover:text-zinc-300 border border-slate-100 dark:border-zinc-750 transition-all"
             title="Copy to clipboard"
           >
             <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -146,13 +147,13 @@ export default function PublishedPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // 🟢 FIX 1: 'idea' ki jagah 'ideas(idea)' join lagaya hai
+      // 🟢 V2: Removed redundant chat_id select to avoid column crash, query directly
       const { data, error } = await supabase
         .from("posts")
-        .select("id, chat_id, hook, caption, posted_at, created_at, ideas(idea)")
+        .select("id, hook, caption, posted_at, created_at, ideas(idea)")
         .eq("user_id", user.id)
         .eq("status", "published")
-        .order("posted_at", { ascending: false }); // 🟢 FIX 2: Removed strict nullsFirst to prevent hidden data
+        .order("posted_at", { ascending: false });
 
       if (error) {
         console.error("Error fetching published posts:", error);
@@ -161,7 +162,7 @@ export default function PublishedPage() {
       if (data) {
         setPosts(data.map((d: any) => ({
           ...d,
-          idea: d.ideas?.idea ?? null, // 🟢 FIX 3: Join se data extract kiya
+          idea: d.ideas?.idea ?? null, 
           hashtags: Array.isArray(d.hashtags) ? d.hashtags : null,
         })));
       }
@@ -194,12 +195,12 @@ export default function PublishedPage() {
         <div className="mb-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">Published</h1>
-              <p className="text-slate-500 text-sm mt-1">{posts.length} post{posts.length !== 1 ? "s" : ""} published total</p>
+              <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Published</h1>
+              <p className="text-slate-500 dark:text-zinc-400 text-sm mt-1">{posts.length} post{posts.length !== 1 ? "s" : ""} published total</p>
             </div>
             <div className="hidden sm:block text-right">
-              <div className="text-2xl font-bold text-emerald-600">{thisMonth}</div>
-              <div className="text-xs text-slate-400">this month</div>
+              <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{thisMonth}</div>
+              <div className="text-xs text-slate-400 dark:text-zinc-500">this month</div>
             </div>
           </div>
 
@@ -211,8 +212,8 @@ export default function PublishedPage() {
                 { label: "This month", value: thisMonth },
                 { label: "Avg / month", value: posts.length > 0 ? Math.round(posts.length / Math.max(1, Object.keys(groups).length)) : 0 },
               ].map((s) => (
-                <div key={s.label} className="bg-white border border-slate-100 rounded-xl p-3 shadow-sm text-center">
-                  <div className="text-lg font-bold text-slate-800">{s.value}</div>
+                <div key={s.label} className="bg-white dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 rounded-xl p-3 shadow-sm text-center">
+                  <div className="text-lg font-bold text-slate-800 dark:text-zinc-100">{s.value}</div>
                   <div className="text-[11px] text-slate-400 mt-0.5">{s.label}</div>
                 </div>
               ))}
@@ -230,7 +231,7 @@ export default function PublishedPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search published posts…"
-            className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-700 placeholder-slate-400 outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 transition-all"
+            className="w-full pl-9 pr-4 py-2.5 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl text-sm text-slate-700 dark:text-zinc-200 placeholder-slate-400 dark:placeholder-zinc-500 outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 transition-all"
           />
         </div>
 
@@ -240,7 +241,7 @@ export default function PublishedPage() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-20">
-            <div className="w-16 h-16 mx-auto rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-slate-100 dark:bg-zinc-800 flex items-center justify-center mb-4">
               <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} className="text-slate-300">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
@@ -267,8 +268,8 @@ export default function PublishedPage() {
                     <PostCard
                       key={post.id}
                       post={post}
-                      // 🟢 FIX: ?view=preview add kiya
-                      onView={(p) => p.chat_id ? navigate(`/chat/${p.chat_id}?view=preview`) : {}}
+                      // 🟢 V2: Passes direct post.id as parameter inside routing (instead of chat_id)
+                      onView={(p) => navigate(`/chat/${p.id}?view=preview`)}
                     />
                   ))}
                 </div>

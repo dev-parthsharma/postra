@@ -60,6 +60,8 @@ def get_supabase():
 
 class SaveIdeaRequest(BaseModel):
     idea: str = Field(..., min_length=1, max_length=500)
+    scheduled_date: Optional[str] = None # 🟢 Added optional scheduled date
+    source: Optional[str] = "user" # user or postra
 
 class ToggleFavouriteRequest(BaseModel):
     idea_id: str
@@ -80,7 +82,6 @@ class ImproveIdeaRequest(BaseModel):
 class UpdateIdeaRequest(BaseModel):
     chat_id: str
     idea_text: str = Field(..., min_length=1, max_length=500)
-    why_it_works: str
     win_score: int
 
 class SaveSelectionRequest(BaseModel):
@@ -98,6 +99,9 @@ class IGConnectRequest(BaseModel):
 
 class ValidateIdeaRequest(BaseModel):
     idea_text: str = Field(..., min_length=1, max_length=1000)
+
+class GeneratePostForExistingIdeaRequest(BaseModel):
+    idea_id: str
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -187,7 +191,9 @@ async def save_user_idea(
     supabase=Depends(get_supabase),
 ):
     try:
-        idea = await ideas_service.handle_save_user_idea(supabase, user_id, body.idea)
+        idea = await ideas_service.handle_save_user_idea(
+            supabase, user_id, body.idea, body.scheduled_date, body.source or "user"
+        )
         return {"idea": idea}
     except IdeaInvalid:
         raise HTTPException(
@@ -299,8 +305,7 @@ def update_idea_route(
             user_id, 
             idea_id, 
             body.chat_id,
-            body.idea_text, 
-            body.why_it_works, 
+            body.idea_text,
             body.win_score
         )
         return result
@@ -340,6 +345,36 @@ async def validate_concept_endpoint(
         return result
     except Exception as e:
         print("VALIDATION ENDPOINT ERROR:", str(e))
+        raise HTTPException(status_code=502, detail=str(e))
+    
+@router.get("/ideas/check-schedule")
+def check_schedule_endpoint(
+    scheduled_date: str,
+    user_id: str = Depends(get_current_user_id),
+    supabase=Depends(get_supabase),
+):
+    """Checks if there's already an active idea planned on this date."""
+    try:
+        from app.integrations.queries import check_idea_scheduled_for_date
+        existing = check_idea_scheduled_for_date(supabase, user_id, scheduled_date)
+        return {"scheduled": bool(existing), "existing_idea": existing}
+    except Exception as e:
+        print("CHECK SCHEDULE ERROR:", str(e))
+        raise HTTPException(status_code=502, detail=str(e))
+    
+@router.post("/ideas/generate-post")
+async def generate_post_for_existing_idea_endpoint(
+    body: GeneratePostForExistingIdeaRequest,
+    user_id: str = Depends(get_current_user_id),
+    supabase=Depends(get_supabase),
+):
+    try:
+        result = await ideas_service.handle_generate_post_for_existing_idea(
+            supabase, user_id, body.idea_id
+        )
+        return result
+    except Exception as e:
+        print("GENERATE POST FOR EXISTING IDEA ERROR:", str(e))
         raise HTTPException(status_code=502, detail=str(e))
 
 

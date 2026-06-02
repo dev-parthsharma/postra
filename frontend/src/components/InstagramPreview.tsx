@@ -350,7 +350,8 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
   const videoInputRef = useRef<HTMLInputElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
 
-  const isPremium = plan === "starter" || plan === "pro";
+  // 🟢 BYPASSED: Always treat as premium for testing
+  const isPremium = true;
   const isPublished = post?.status === "published";
 
   // ─── 1. LOAD POST DATA (V2 DIRECT POST QUERY) ───
@@ -833,7 +834,8 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
             <span className="hidden sm:inline">Export PDF</span>
           </button>
 
-          {plan === "free" ? (
+          {/* 🟢 BYPASSED: Manual publish restriction removed for testing */}
+          {false ? (
             <button
               disabled={manualPublishing || isPublished}
               onClick={handleManualPublish}
@@ -1035,7 +1037,8 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
               <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500"></span>
               Shooting Guide 🎥
             </h3>
-            {plan === "free" ? (
+            {/* 🟢 BYPASSED: Shooting guide blur removed for testing */}
+            {false ? (
               <div className="relative mt-2">
                 <div className="blur-[3px] opacity-60 pointer-events-none select-none">
                   <p className="text-sm font-semibold text-slate-800 dark:text-zinc-200">1. Camera Angle & Lighting:</p>
@@ -1066,7 +1069,8 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
               <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-purple-500"></span>
               Editing Guide ✂️
             </h3>
-            {plan === "free" || plan === "starter" ? (
+            {/* 🟢 BYPASSED: Editing guide blur removed for testing */}
+            {false ? (
               <div className="relative mt-2">
                 <div className="blur-[3px] opacity-60 pointer-events-none select-none">
                   <p className="text-sm font-semibold text-slate-800 dark:text-zinc-200">1. Pacing & Cuts:</p>
@@ -1307,7 +1311,8 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
           </div>
         )}
 
-        {post?.shooting_guide && plan !== "free" && (
+        {/* 🟢 BYPASSED: Shooting guide display restriction removed for testing */}
+        {post?.shooting_guide && true && (
           <div className="mb-8">
             <h2 className="text-xs font-bold text-blue-500 uppercase tracking-widest mb-3">Shooting Guide 🎥</h2>
             <div

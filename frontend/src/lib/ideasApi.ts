@@ -237,3 +237,36 @@ export async function validateIdea(ideaText: string): Promise<{
   });
   return handleResponse(res);
 }
+
+export async function checkDateSchedule(scheduledDate: string): Promise<{
+  scheduled: boolean;
+  existing_idea: { id: string; idea: string } | null;
+}> {
+  const res = await fetch(`${API_BASE}/api/ideas/check-schedule?scheduled_date=${scheduledDate}`, {
+    method: "GET",
+    headers: await authHeaders(),
+  });
+  return handleResponse(res);
+}
+
+export async function saveUserIdeaWithDate(
+  ideaText: string,
+  scheduledDate?: string,
+  source: string = "user"
+): Promise<{ idea: Idea }> {
+  const res = await fetch(`${API_BASE}/api/ideas/save`, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ idea: ideaText, scheduled_date: scheduledDate, source }),
+  });
+  return handleResponse<{ idea: Idea }>(res);
+}
+
+export async function generatePostForExistingIdea(ideaId: string): Promise<{ id: string }> {
+  const res = await fetch(`${API_BASE}/api/ideas/generate-post`, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ idea_id: ideaId }),
+  });
+  return handleResponse<{ id: string }>(res);
+}

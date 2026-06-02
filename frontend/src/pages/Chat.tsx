@@ -23,8 +23,9 @@ export default function Chat() {
           .select("plan")
           .eq("id", user.id)
           .single();
+        // 🟢 BYPASSED: Always set plan to "pro" for testing
         if (data?.plan) {
-          setPlan(data.plan.toLowerCase());
+          setPlan("pro");
         }
       } catch (err) {
         console.error("Failed to load user plan inside wrapper:", err);

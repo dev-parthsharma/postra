@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import DashboardLayout from "../components/layout/DashboardLayout";
+import { deleteIdea } from "../lib/ideasApi"; // 🟢 Imported unified deleteSync API
 
 interface Draft {
   id: string;
@@ -122,7 +123,7 @@ export default function DraftsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
-  // ── Safety delete state ──
+  // Safety delete state
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -130,12 +131,11 @@ export default function DraftsPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // 🟢 V2 Fix: Removed chats(title) relationship to avoid db crash
       const { data } = await supabase
         .from("posts")
         .select("id, idea_id, hook, script, caption, status, created_at, updated_at, ideas(idea)")
         .eq("user_id", user.id)
-        .eq("status", "draft") // Strictly load drafts waiting to be published
+        .in("status", ["draft", "ready"]) // 🟢 V2: Supports both draft & ready statuses for total safety
         .order("updated_at", { ascending: false });
 
       if (data) {
@@ -149,43 +149,30 @@ export default function DraftsPage() {
     load();
   }, []);
 
-  // ── 🟢 SAFETY DELETE HANDLERS ──
   const handleDeleteTrigger = (id: string) => {
-    setDeleteTargetId(id); // Open confirmation warning modal first
+    setDeleteTargetId(id);
   };
 
   const confirmDelete = async (id: string) => {
     setDeleteTargetId(null);
+    const draftToDelete = drafts.find((d) => d.id === id);
+    if (!draftToDelete) return;
 
     // Optimistic UI Update: Screen se turant disappear karo
     const previousDrafts = [...drafts];
     setDrafts((prev) => prev.filter((d) => d.id !== id));
 
     try {
-      // 🟢 Added .select() to verify if rows were actually deleted
-      const { data, error } = await supabase
-        .from("posts")
-        .delete()
-        .eq("id", id)
-        .select();
-      
-      if (error) throw error;
-
-      // 🟢 Agar data length 0 hai, matlab RLS ne silently request ignore kar di
-      if (!data || data.length === 0) {
-        throw new Error(
-          "Operation was silently blocked by database RLS. Ensure you have run the 'DELETE' RLS policy on the 'posts' table in Supabase."
-        );
-      }
+      // 🟢 V2: Calls backend deleteIdea endpoint, which wipes both Posts and Ideas tables safely!
+      await deleteIdea(draftToDelete.idea_id || "");
     } catch (err: any) {
-      // Deletion fail hone par rollback aur explicit alert
       setDrafts(previousDrafts);
       alert("Database Error: Failed to delete draft.\n\nReason: " + (err.message || err));
     }
   };
 
   const handleContinue = (draft: Draft) => {
-    // Direct navigation using direct post ID (which bypasses old chat references)
+    // 🟢 V2: Direct route using the post's direct ID
     navigate(`/chat/${draft.id}`);
   };
 
@@ -256,14 +243,14 @@ export default function DraftsPage() {
                 key={draft.id}
                 draft={draft}
                 onContinue={handleContinue}
-                onDelete={handleDeleteTrigger} // 🟢 Calls safety trigger modal first
+                onDelete={handleDeleteTrigger}
               />
             ))}
           </div>
         )}
       </div>
 
-      {/* ── 🟢 DELETE DOUBLE-CONFIRMATION POPUP OVERLAY ── */}
+      {/* ── SAFETY DELETE CONFIRMATION OVERLAY ── */}
       {deleteTargetId && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl w-full max-w-sm p-6 text-center space-y-4 shadow-xl animate-in zoom-in-95 duration-200">

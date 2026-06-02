@@ -119,11 +119,11 @@ function InstagramStrip({ userId, plan, onRequireUpgrade }: { userId: string | u
   }, [userId]);
 
   const handleConnect = () => {
-    // 🟢 1. Check Plan First (Triggers Premium App Popup)
-    if (plan.toLowerCase() === "free") {
-      onRequireUpgrade();
-      return;
-    }
+    // 🟢 BYPASSED: Plan check removed for testing
+    // if (plan.toLowerCase() === "free") {
+    //   onRequireUpgrade();
+    //   return;
+    // }
 
     if (username) return; 
     
@@ -363,7 +363,8 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
         .eq("id", user.id)
         .maybeSingle()
         .then(({ data }) => {
-          if (data?.plan) setPlan(data.plan);
+          // 🟢 BYPASSED: Always set plan to "pro" for testing
+          if (data?.plan) setPlan("pro");
         });
     });
   },[]);

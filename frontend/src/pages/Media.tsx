@@ -73,10 +73,12 @@ export default function Media() {
         .eq("id", user.id)
         .single();
       
-      const userPlan = profile?.plan?.toLowerCase() || "free";
-      setPlan(userPlan);
+      // 🟢 BYPASSED: Always set plan to "pro" for testing
+      const userPlan = profile?.plan?.toLowerCase() || "pro";
+      setPlan("pro");
 
-      if (userPlan !== "free") {
+      // 🟢 BYPASSED: Media loading restriction removed for testing
+      // if (userPlan !== "free") {
         const { data: media } = await supabase
           .from("media")
           .select("*")
@@ -84,7 +86,7 @@ export default function Media() {
           .order("created_at", { ascending: false });
 
         if (media) setMediaItems(media);
-      }
+      // }
       setLoading(false);
     };
 
@@ -365,10 +367,11 @@ export default function Media() {
   };
 
   const handleGenerateClick = () => {
-    if (plan !== "pro") {
-      alert("Generating content from media is available on the Pro plan!");
-      return;
-    }
+    // 🟢 BYPASSED: Generate content restriction removed for testing
+    // if (plan !== "pro") {
+    //   alert("Generating content from media is available on the Pro plan!");
+    //   return;
+    // }
     if (mediaItems.length === 0) {
       alert("Please upload some media first.");
       return;
@@ -392,27 +395,28 @@ export default function Media() {
     );
   }
 
-  if (plan === "free") {
-    return (
-      <div className="p-6 md:p-8 max-w-5xl mx-auto h-[calc(100vh-4rem)] flex flex-col items-center justify-center text-center">
-        <div className="w-16 h-16 bg-slate-100 dark:bg-zinc-800 rounded-full flex items-center justify-center mb-4">
-          <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="text-slate-400 dark:text-zinc-500">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-          </svg>
-        </div>
-        <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Media Library Locked</h2>
-        <p className="text-slate-500 dark:text-zinc-400 text-sm max-w-md mb-6">
-          Upgrade to Starter or Pro to upload your images and videos, and generate AI content directly from them.
-        </p>
-        <button
-          onClick={() => navigate("/upgrade")}
-          className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold transition-all shadow-sm"
-        >
-          View Plans
-        </button>
-      </div>
-    );
-  }
+  // 🟢 BYPASSED: Free plan lock screen removed for testing
+  // if (plan === "free") {
+  //   return (
+  //     <div className="p-6 md:p-8 max-w-5xl mx-auto h-[calc(100vh-4rem)] flex flex-col items-center justify-center text-center">
+  //       <div className="w-16 h-16 bg-slate-100 dark:bg-zinc-800 rounded-full flex items-center justify-center mb-4">
+  //         <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="text-slate-400 dark:text-zinc-500">
+  //           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+  //         </svg>
+  //       </div>
+  //       <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Media Library Locked</h2>
+  //       <p className="text-slate-500 dark:text-zinc-400 text-sm max-w-md mb-6">
+  //         Upgrade to Starter or Pro to upload your images and videos, and generate AI content directly from them.
+  //       </p>
+  //       <button
+  //         onClick={() => navigate("/upgrade")}
+  //         className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold transition-all shadow-sm"
+  //       >
+  //         View Plans
+  //       </button>
+  //     </div>
+  //   );
+  // }
 
   return (
     <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-6 relative">
@@ -464,11 +468,11 @@ export default function Media() {
               <button
                 onClick={handleGenerateClick}
                 className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-sm ${
-                  plan === "pro" 
+                  true
                     ? "bg-indigo-600 hover:bg-indigo-700 text-white"
                     : "bg-slate-100 text-slate-400 dark:bg-zinc-800 dark:text-zinc-500 cursor-not-allowed"
                 }`}
-                title={plan !== "pro" ? "Pro Plan required" : ""}
+                title={false ? "Pro Plan required" : ""}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />

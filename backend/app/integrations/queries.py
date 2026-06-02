@@ -22,7 +22,6 @@ def insert_ideas(supabase, user_id: str, ideas: list[str], source: str) -> list[
             "user_id": user_id,
             "idea": idea.strip(),
             "source": source,
-            "is_favourite": False,
         }
         for idea in ideas
     ]
@@ -54,7 +53,8 @@ def get_ideas_with_chat_status(supabase, user_id: str) -> list[dict]:
         supabase.table("ideas")
         .select("*, posts(id, status)")
         .eq("user_id", user_id)
-        .order("is_favourite", desc=True)
+        # 🟢 V2: Removed is_favourite ordering, now ordered by scheduled_date & created_at
+        .order("scheduled_date", desc=False, nullsfirst=False)
         .order("created_at", desc=True)
         .execute()
     )
@@ -243,9 +243,10 @@ def get_user_profile(supabase, user_id: str) -> Optional[dict]:
 # ── Utility ───────────────────────────────────────────────────────────────────
 
 def delete_idea(supabase, idea_id: str, user_id: str) -> None:
+    # Confirm the idea exists and belongs to this user
     idea_check = (
         supabase.table("ideas")
-        .select("id, source")
+        .select("id")
         .eq("id", idea_id)
         .eq("user_id", user_id)
         .execute()
@@ -253,11 +254,7 @@ def delete_idea(supabase, idea_id: str, user_id: str) -> None:
     if not idea_check.data:
         raise RuntimeError("Idea not found or not owned by user")
 
-    idea = idea_check.data[0]
-    if idea.get("source") != "user":
-        raise RuntimeError("Only user-written ideas can be deleted")
-
-    # 🟢 V2: Directly delete any linked posts in the posts table
+    # 🟢 V2: Deleted 'source == user' validation so ALL ideas are fully deletable
     supabase.table("posts").delete().eq("idea_id", idea_id).execute()
 
     response = (
@@ -304,3 +301,14 @@ def update_user_streak(supabase, user_id: str) -> dict:
     
     res = supabase.table("user_stats").insert(new_record).execute()
     return res.data[0] if res.data else new_record
+
+def check_idea_scheduled_for_date(supabase, user_id: str, scheduled_date: str) -> Optional[dict]:
+    """Checks if there is already an idea planned for the selected date."""
+    response = (
+        supabase.table("ideas")
+        .select("id, idea")
+        .eq("user_id", user_id)
+        .eq("scheduled_date", scheduled_date)
+        .execute()
+    )
+    return response.data[0] if response.data else None

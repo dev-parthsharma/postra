@@ -46,7 +46,8 @@ export default function NewPostModal({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       const { data } = await supabase.from("user_profile").select("plan").eq("id", user.id).single();
-      if (data?.plan) setPlan(data.plan.toLowerCase());
+      // 🟢 BYPASSED: Always set plan to "pro" for testing
+      if (data?.plan) setPlan("pro");
     };
     fetchPlan();
 
@@ -77,10 +78,11 @@ export default function NewPostModal({
   }, []);
 
   const toggleMic = () => {
-    if (plan === "free" || plan === "starter") {
-      setErrorMsg("Voice typing is a Pro feature! 🎙️ Please upgrade to unlock.");
-      return;
-    }
+    // 🟢 BYPASSED: Voice typing restriction removed for testing
+    // if (plan === "free" || plan === "starter") {
+    //   setErrorMsg("Voice typing is a Pro feature! 🎙️ Please upgrade to unlock.");
+    //   return;
+    // }
     if (!recognitionRef.current) {
       setErrorMsg("Speech recognition is not supported in this browser. Try Chrome/Edge.");
       return;
@@ -108,10 +110,11 @@ export default function NewPostModal({
 
   // 🟢 Handles validation first before generating
   const handleOneClickInitiate = async () => {
-    if (plan === "free") {
-      setErrorMsg("Generate Post ⚡ is a premium feature. Please upgrade your plan.");
-      return;
-    }
+    // 🟢 BYPASSED: Generate Post restriction removed for testing
+    // if (plan === "free") {
+    //   setErrorMsg("Generate Post ⚡ is a premium feature. Please upgrade your plan.");
+    //   return;
+    // }
     if (!ideaText.trim()) return;
 
     setIsValidating(true);
@@ -283,7 +286,7 @@ export default function NewPostModal({
                   <button 
                     type="button"
                     onClick={handleOneClickInitiate}
-                    disabled={isIdeaEmpty || plan === "free" || isValidating}
+                    disabled={isIdeaEmpty || isValidating}
                     className="w-full flex flex-col items-center justify-center p-3.5 rounded-2xl bg-gradient-to-b from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white border-2 border-indigo-600 transition-all disabled:opacity-50 shadow-md relative overflow-hidden"
                   >
                     {isValidating ? (

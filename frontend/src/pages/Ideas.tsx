@@ -1,75 +1,32 @@
 // frontend/src/pages/Ideas.tsx
-// Shows all ideas. Highlights recommended ideas with metadata.
-// Features: cycling loading messages, recommended card, 2 alternative cards,
-// win_score, why_it_works, fallback indicator, dedup (via backend session cache),
-// improve idea feature (Gemini → Groq fallback).
+// Brand New V2: Direct Content Ideas Planner Dashboard with Date Schedules, Concept Validations & Detail Overlay Modals.
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
+import { supabase } from "../lib/supabase";
 import {
   listIdeas,
-  saveUserIdea,
-  toggleFavourite,
-  confirmIdea,
   deleteIdea,
-  generateIdeas,
+  generateSingleIdea,
   improveIdea,
-  ApiError,
-  type Idea,
-  type IdeaWithMeta,
-  type GeneratedIdeasResult,
+  validateIdea,
+  checkDateSchedule,
+  saveUserIdeaWithDate,
+  generatePostForExistingIdea,
+  confirmIdea,
 } from "../lib/ideasApi";
-import { useNavigate } from "react-router-dom";
-import { classifyIdea } from "../utils/ideaValidator";
 
-// ── Loading messages that cycle during generation ─────────────────────────────
-
-const LOADING_MESSAGES = [
-  "Generating ideas...",
-  "Finding something strong for your niche...",
-  "Checking what fits best...",
-  "Almost there...",
-  "Putting finishing touches...",
-];
-
-const IMPROVE_LOADING_MESSAGES = [
-  "Improving your idea...",
-  "Making it more specific...",
-  "Boosting viral potential...",
-  "Almost done...",
-];
-
-function useLoadingMessage(active: boolean, messages: string[]): string {
-  const [index, setIndex] = useState(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (active) {
-      setIndex(0);
-      intervalRef.current = setInterval(() => {
-        setIndex((i) => (i + 1) % messages.length);
-      }, 1800);
-    } else {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    }
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [active, messages.length]);
-
-  return messages[index];
-}
-
-// ── Sub-components ────────────────────────────────────────────────────────────
-
-function Spinner({ small = false }: { small?: boolean }) {
+// ── Spinner Helper ────────────────────────────────────────────────────────────
+function Spinner({ small = false, size = 16 }: { small?: boolean; size?: number }) {
   return (
-    <svg className={`animate-spin ${small ? "w-3 h-3" : "w-4 h-4"}`} viewBox="0 0 24 24" fill="none">
+    <svg className="animate-spin text-indigo-600" style={{ width: size, height: size }} viewBox="0 0 24 24" fill="none">
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
     </svg>
   );
 }
 
+// ── WinScore Badge ────────────────────────────────────────────────────────────
 function WinScore({ score }: { score: number | null | undefined }) {
   if (!score) return null;
   const color =
@@ -86,672 +43,475 @@ function WinScore({ score }: { score: number | null | undefined }) {
   );
 }
 
-// ── Placeholder Modal (Temporary Chat Bypass) ───────────────────────────────────
-
-interface PlaceholderModalProps {
-  ideaText: string;
+// ── PLANNER OVERLAY MODAL (SAVE IDEAS DIRECTLY) ──
+interface CreateIdeaModalProps {
   onClose: () => void;
+  onSaved: () => void;
 }
 
-function PlaceholderModal({ ideaText, onClose }: PlaceholderModalProps) {
+function CreateIdeaModal({ onClose, onSaved }: CreateIdeaModalProps) {
+  const [ideaText, setIdeaText] = useState("");
+  const [scheduledDate, setScheduledDate] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // AI Loading states
+  const [isGeneratingIdea, setIsGeneratingIdea] = useState(false);
+  const [isImproving, setIsImproving] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
+
+  // Mismatch & Double Schedules Modals
+  const [showNicheWarning, setShowNicheWarning] = useState(false);
+  const [detectedNiche, setDetectedNiche] = useState("");
+  const [userNiche, setUserNiche] = useState("");
+
+  const [showScheduleConflict, setShowScheduleConflict] = useState(false);
+  const [conflictingIdeaText, setConflictingIdeaText] = useState("");
+
+  const handleGetNicheIdea = async () => {
+    setIsGeneratingIdea(true);
+    setErrorMsg(null);
+    try {
+      const res = await generateSingleIdea();
+      if (res?.idea) {
+        setIdeaText(res.idea);
+      } else {
+        setErrorMsg("Could not find a trending idea right now.");
+      }
+    } catch (e: any) {
+      setErrorMsg(e.message || "Failed to generate idea.");
+    } finally {
+      setIsGeneratingIdea(false);
+    }
+  };
+
+  const handleImprove = async () => {
+    if (!ideaText.trim()) return;
+    setIsImproving(true);
+    try {
+      const res = await improveIdea("temp", ideaText); 
+      setIdeaText(res.improved_idea);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsImproving(false);
+    }
+  };
+
+  const handleSaveInitiate = async () => {
+    if (!ideaText.trim()) return;
+    setIsValidating(true);
+    setErrorMsg(null);
+
+    try {
+      const check = await validateIdea(ideaText);
+      setIsValidating(false);
+
+      if (!check.valid) {
+        setErrorMsg(check.message || "This doesn't look like a real idea.");
+        setTimeout(() => setErrorMsg(null), 5000); 
+        return;
+      }
+
+      if (scheduledDate) {
+        const conflict = await checkDateSchedule(scheduledDate);
+        if (conflict.scheduled) {
+          setConflictingIdeaText(conflict.existing_idea?.idea || "");
+          setShowScheduleConflict(true);
+          return;
+        }
+      }
+
+      if (!check.niche_match) {
+        setDetectedNiche(check.detected_niche);
+        setUserNiche(check.user_niche);
+        setShowNicheWarning(true);
+      } else {
+        executeSave();
+      }
+    } catch (e: any) {
+      setIsValidating(false);
+      setErrorMsg(e.message || "Failed to validate idea.");
+    }
+  };
+
+  const executeSave = async () => {
+    setSaving(true);
+    try {
+      await saveUserIdeaWithDate(ideaText, scheduledDate || undefined);
+      onSaved();
+      onClose();
+    } catch (e: any) {
+      setErrorMsg(e.message || "Failed to save idea.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const isIdeaEmpty = !ideaText.trim();
+
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/50 dark:bg-black/75 backdrop-blur-sm flex items-center justify-center px-4"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="w-full max-w-md bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-2xl overflow-hidden p-6 text-center space-y-4">
-        <div className="w-12 h-12 bg-orange-100 dark:bg-orange-500/10 rounded-full flex items-center justify-center mx-auto text-xl">
-          ✨
+    <div className="fixed inset-0 z-50 bg-black/50 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+      <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col relative">
+        
+        {/* Header */}
+        <div className="px-6 py-4 flex justify-between items-center border-b border-slate-100 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-800/50">
+          <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            Add Idea Planner <span className="text-xl">💡</span>
+          </h2>
+          <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-500 transition-colors">
+            ✖
+          </button>
         </div>
-        <div className="space-y-2">
-          <h3 className="text-slate-900 dark:text-white font-bold text-base">Post Creation Coming Soon</h3>
-          <p className="text-slate-500 dark:text-zinc-400 text-xs leading-relaxed">
-            We are replacing the old chat flow with a much faster, one-click automated creation system.
-          </p>
+
+        {/* Modal Content */}
+        <div className="p-6 space-y-4">
+          
+          {errorMsg && (
+            <div className="p-3 rounded-xl bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 text-sm font-medium flex justify-between items-center border border-red-100 dark:border-red-500/20">
+              <span className="flex-1 pr-2">{errorMsg}</span>
+              <button onClick={() => setErrorMsg(null)} className="text-xs font-bold">✖</button>
+            </div>
+          )}
+
+          {/* Text Area */}
+          <div className="space-y-1.5">
+            <span className="text-xs font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider block">Your Idea</span>
+            <textarea 
+              value={ideaText}
+              onChange={(e) => setIdeaText(e.target.value)}
+              placeholder="What is your content concept? (e.g. 3 morning habits for productivity)"
+              className="w-full h-32 resize-none rounded-2xl border border-slate-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-800/80 p-4 text-[14.5px] outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 transition-all dark:text-white"
+            />
+          </div>
+
+          {/* Date Picker */}
+          <div className="space-y-1.5">
+            <span className="text-xs font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider block">Plan Date (Optional)</span>
+            <input 
+              type="date" 
+              value={scheduledDate}
+              onChange={(e) => setScheduledDate(e.target.value)}
+              className="w-full bg-slate-50 dark:bg-zinc-800/80 border border-slate-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-700 dark:text-zinc-200 outline-none focus:border-indigo-500 transition-all"
+            />
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex flex-col gap-3 pt-2">
+            {isIdeaEmpty ? (
+              <button 
+                type="button"
+                onClick={handleGetNicheIdea}
+                disabled={isGeneratingIdea}
+                className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 py-2.5 rounded-xl flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+              >
+                {isGeneratingIdea ? (
+                  <div className="flex items-center gap-2">
+                    <Spinner small />
+                    <span>Generating Trending Idea...</span>
+                  </div>
+                ) : (
+                  "💡 Get Niche Idea"
+                )}
+              </button>
+            ) : (
+              <button 
+                type="button"
+                onClick={handleImprove}
+                disabled={isImproving}
+                className="text-xs font-semibold text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-500/10 hover:bg-orange-100 py-2.5 rounded-xl flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+              >
+                {isImproving ? "Improving..." : "🪄 Improve this idea"}
+              </button>
+            )}
+
+            <button 
+              type="button"
+              onClick={handleSaveInitiate}
+              disabled={isIdeaEmpty || saving || isValidating}
+              className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md shadow-indigo-500/10 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+            >
+              {saving || isValidating ? <Spinner small /> : "Save Idea to Planner"}
+            </button>
+          </div>
+
         </div>
-        <div className="bg-slate-50 dark:bg-zinc-800 border border-slate-100 dark:border-zinc-700 rounded-xl p-3 text-left">
-          <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-1">Selected Idea</p>
-          <p className="text-slate-700 dark:text-zinc-300 text-xs italic">"{ideaText}"</p>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="w-full py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-xs font-semibold transition-all shadow-md shadow-orange-500/20"
-        >
-          Got it
-        </button>
+
+        {/* ── NICHE WARNING CONFIRMATION OVERLAY POPUP ── */}
+        {showNicheWarning && (
+          <div className="absolute inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-200">
+            <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl w-full max-w-sm p-6 text-center space-y-4 shadow-xl animate-in zoom-in-95 duration-200">
+              <div className="w-12 h-12 bg-amber-50 dark:bg-amber-500/10 text-amber-500 dark:text-amber-400 rounded-full flex items-center justify-center mx-auto text-xl">
+                ⚠️
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">Niche Mismatch</h3>
+                <p className="text-xs text-slate-500 dark:text-zinc-400 leading-relaxed">
+                  This idea seems to belong to <span className="font-bold text-slate-800 dark:text-zinc-200">"{detectedNiche}"</span>, but your profile niche is set to <span className="font-bold text-slate-800 dark:text-zinc-200">"{userNiche}"</span>.
+                </p>
+                <p className="text-[11px] text-indigo-500 dark:text-indigo-400 italic bg-indigo-50/50 dark:bg-indigo-500/5 p-2 rounded-xl border border-indigo-100/30">
+                  Tip: If you want to change your niche permanently, you can update it in Settings.
+                </p>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowNicheWarning(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 font-semibold text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowNicheWarning(false);
+                    executeSave(); 
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold text-xs shadow-md shadow-indigo-500/20 active:scale-95 transition-all"
+                >
+                  Save Anyway
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── DOUBLE SCHEDULE / DATE CONFLICT WARNING OVERLAY ── */}
+        {showScheduleConflict && (
+          <div className="absolute inset-0 z-[65] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-200">
+            <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl w-full max-w-sm p-6 text-center space-y-4 shadow-xl animate-in zoom-in-95 duration-200">
+              <div className="w-12 h-12 bg-orange-50 dark:bg-orange-500/10 text-orange-500 dark:text-orange-400 rounded-full flex items-center justify-center mx-auto text-xl">
+                📅
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">Date Already Booked</h3>
+                <p className="text-xs text-slate-500 dark:text-zinc-400 leading-relaxed">
+                  You already have another idea scheduled for this day:
+                </p>
+                <p className="text-xs font-semibold text-slate-700 dark:text-zinc-200 bg-slate-50 dark:bg-zinc-800 p-2.5 rounded-xl border border-slate-100 dark:border-zinc-850 truncate italic">
+                  "{conflictingIdeaText}"
+                </p>
+                <p className="text-xs text-slate-500 dark:text-zinc-400">
+                  Do you want to proceed and save multiple ideas on this same day?
+                </p>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowScheduleConflict(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 font-semibold text-xs"
+                >
+                  Change Date
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowScheduleConflict(false);
+                    executeSave();
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold text-xs shadow-md shadow-indigo-500/20 active:scale-95 transition-all"
+                >
+                  Save Multiple
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );
 }
 
-// ── Improve Idea Modal ────────────────────────────────────────────────────────
-
-interface ImproveModalProps {
-  idea: Idea;
+// ── DETAILS & 1-CLICK GENERATION MODAL OVERLAY ──
+interface IdeaDetailsModalProps {
+  idea: any;
   onClose: () => void;
-  onApply: (improvedText: string, whyItWorks: string, winScore: number) => void;
+  onPostCreated: (postId: string) => void;
 }
 
-function ImproveModal({ idea, onClose, onApply }: ImproveModalProps) {
-  const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
-  const [result, setResult] = useState<{ improved_idea: string; why_it_works: string; win_score: number } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const improveLoadingMsg = useLoadingMessage(status === "loading", IMPROVE_LOADING_MESSAGES);
+function IdeaDetailsModal({ idea, onClose, onPostCreated }: IdeaDetailsModalProps) {
+  const navigate = useNavigate();
+  const [generating, setGenerating] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handleImprove = async () => {
-    setStatus("loading");
-    setError(null);
+  const handleGeneratePost = async () => {
+    setGenerating(true);
+    setErrorMsg(null);
     try {
-      const res = await improveIdea(idea.id, idea.idea);
-      setResult(res);
-      setStatus("done");
-    } catch (e: unknown) {
-      setError((e as Error).message || "AI is temporarily unavailable. Please try again later.");
-      setStatus("error");
+      const res = await generatePostForExistingIdea(idea.id);
+      onPostCreated(res.id); 
+    } catch (e: any) {
+      setErrorMsg(e.message || "Failed to auto-generate post.");
+      setGenerating(false);
     }
   };
 
-  // Auto-start improve on mount
-  useEffect(() => {
-    handleImprove();
-  }, []);
+  const formattedDate = idea.scheduled_date
+    ? new Date(idea.scheduled_date).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })
+    : "Unscheduled";
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/50 dark:bg-black/75 backdrop-blur-sm flex items-center justify-center px-4"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="w-full max-w-md bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+      <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col relative">
+        
         {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-slate-100 dark:border-zinc-800">
-          <div className="flex items-center gap-2">
-            <span className="text-base">✨</span>
-            <h3 className="text-slate-900 dark:text-white font-semibold text-sm">Improve Idea</h3>
+        <div className="px-6 py-4 flex justify-between items-center border-b border-slate-100 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-800/50">
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+            <span>📅</span> Idea Details
+          </h3>
+          <button onClick={onClose} disabled={generating} className="p-1.5 rounded-xl hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-500 transition-colors">
+            ✖
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="p-6 space-y-5">
+          {errorMsg && (
+            <p className="text-red-500 text-xs font-semibold">{errorMsg}</p>
+          )}
+
+          {generating ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
+              {/* Size prop resolved */}
+              <Spinner size={32} />
+              <div className="space-y-1">
+                <h4 className="text-sm font-bold text-slate-800 dark:text-white">Auto-Generating Post...</h4>
+                <p className="text-xs text-slate-500 dark:text-zinc-400">Crafting high-converting hooks, custom video script, and copy.</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                <span className="text-xs font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider block">Content Idea</span>
+                <p className="text-sm font-semibold leading-relaxed text-slate-800 dark:text-zinc-100">
+                  {idea.idea}
+                </p>
+              </div>
+
+              <div className="flex justify-between items-center bg-slate-50 dark:bg-zinc-800/50 border border-slate-100 dark:border-zinc-850 rounded-2xl p-4">
+                <div className="space-y-0.5">
+                  <span className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider block">Planned Date</span>
+                  <span className="text-xs font-semibold text-slate-700 dark:text-zinc-300">{formattedDate}</span>
+                </div>
+                <WinScore score={idea.win_score} />
+              </div>
+
+              <div className="pt-2">
+                {idea.post_status === "published" ? (
+                  <div className="text-center p-3 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-bold rounded-xl border border-emerald-200 dark:border-emerald-500/20">
+                    Post Published ✅
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleGeneratePost}
+                    className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md shadow-indigo-500/15 transition-all active:scale-95"
+                  >
+                    Generate Post ⚡
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+// ── CUSTOM IDEA CARD (RESTORED ALIGNMENT & COMPACT DESIGN) ──
+function CustomIdeaCard({
+  idea,
+  onOpenDetails,
+  onDelete,
+}: {
+  idea: any;
+  onOpenDetails: (idea: any) => void;
+  onDelete: (id: string) => void;
+}) {
+  const formattedDate = idea.scheduled_date
+    ? new Date(idea.scheduled_date).toLocaleDateString("en-IN", { day: "numeric", month: "short" })
+    : null;
+
+  return (
+    <div 
+      onClick={() => onOpenDetails(idea)} 
+      className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-2xl p-5 hover:shadow-md transition-all group flex flex-col justify-between h-full space-y-4 cursor-pointer"
+    >
+      <div className="space-y-3 flex-1">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider ${
+              idea.source === "postra" 
+                ? "text-orange-5050/10 border-orange-500/20"
+                : "text-zinc-500 bg-zinc-800 border-zinc-850"
+            }`}>
+              {idea.source === "postra" ? "✨ AI Idea" : "✍️ Custom"}
+            </span>
+            <WinScore score={idea.win_score} />
           </div>
+
+          {/* Delete Trash Button */}
           <button
             type="button"
-            onClick={onClose}
-            className="text-slate-400 dark:text-zinc-500 hover:text-slate-600 dark:hover:text-zinc-300 transition-colors p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800"
+            onClick={(e) => { e.stopPropagation(); onDelete(idea.id); }} 
+            className="text-slate-400 dark:text-zinc-600 hover:text-red-500 dark:hover:text-red-400 transition-colors duration-150 p-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/5 z-10"
+            title="Delete Idea"
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 6L6 18M6 6l12 12" />
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
             </svg>
           </button>
         </div>
 
-        <div className="p-5 space-y-4">
-          {/* Original */}
-          <div>
-            <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-2">Original</p>
-            <div className="bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl p-3">
-              <p className="text-slate-600 dark:text-zinc-400 text-sm leading-relaxed">{idea.idea}</p>
-            </div>
-          </div>
+        <p className="text-zinc-100 text-sm font-semibold leading-relaxed line-clamp-3">
+          {idea.idea}
+        </p>
+      </div>
 
-          {/* Loading state */}
-          {status === "loading" && (
-            <div className="flex flex-col items-center gap-3 py-6">
-              <div className="w-10 h-10 rounded-full bg-orange-50 dark:bg-orange-500/10 border border-orange-100 dark:border-orange-500/20 flex items-center justify-center">
-                <Spinner />
-              </div>
-              <p className="text-slate-500 dark:text-zinc-400 text-sm font-medium">{improveLoadingMsg}</p>
-              <div className="flex gap-1.5">
-                {[0, 1, 2].map((i) => (
-                  <div
-                    key={i}
-                    className="w-1.5 h-1.5 rounded-full bg-orange-400 dark:bg-orange-500 animate-bounce"
-                    style={{ animationDelay: `${i * 150}ms` }}
-                  />
-                ))}
-              </div>
+      <div className="flex items-center justify-between pt-3 border-t border-zinc-800">
+        <div>
+          {formattedDate ? (
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded-full">
+              <span>📅</span> {formattedDate}
             </div>
-          )}
-
-          {/* Error state */}
-          {status === "error" && (
-            <div className="space-y-3">
-              <div className="flex items-start gap-3 p-3.5 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20">
-                <span className="text-base flex-shrink-0">⚠️</span>
-                <div>
-                  <p className="text-red-600 dark:text-red-400 text-sm font-semibold">AI Unavailable</p>
-                  <p className="text-slate-500 dark:text-zinc-500 text-xs mt-0.5">{error}</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={handleImprove}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300 text-sm font-medium transition-all"
-              >
-                ↺ Try Again
-              </button>
-            </div>
-          )}
-
-          {/* Done state */}
-          {status === "done" && result && (
-            <div className="space-y-3">
-              <div>
-                <p className="text-xs font-semibold text-orange-500 dark:text-orange-400 uppercase tracking-wider mb-2">✨ Improved Version</p>
-                <div className="bg-orange-50 dark:bg-orange-500/5 border border-orange-200 dark:border-orange-500/20 rounded-xl p-3.5">
-                  <p className="text-slate-800 dark:text-zinc-100 text-sm font-medium leading-relaxed">{result.improved_idea}</p>
-                  {result.why_it_works && (
-                    <div className="flex items-start gap-1.5 mt-2.5">
-                      <span className="text-orange-500 text-[10px] mt-0.5 flex-shrink-0">💡</span>
-                      <p className="text-slate-500 dark:text-zinc-400 text-xs italic leading-relaxed">{result.why_it_works}</p>
-                    </div>
-                  )}
-                  <div className="mt-2">
-                    <WinScore score={result.win_score} />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={handleImprove}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-600 dark:text-zinc-400 text-xs font-medium transition-all"
-                >
-                  ↺ Regenerate
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onApply(result.improved_idea, result.why_it_works, result.win_score)}
-                  className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-xs font-semibold transition-all shadow-md shadow-orange-500/20"
-                >
-                  Use Improved Version →
-                </button>
-              </div>
-            </div>
+          ) : (
+            <span className="text-[11px] font-medium text-slate-400 dark:text-zinc-500 italic">Unscheduled</span>
           )}
         </div>
-      </div>
-    </div>
-  );
-}
 
-// ── Loading skeleton for the generated section ────────────────────────────────
-
-function GeneratingSkeleton({ message }: { message: string }) {
-  return (
-    <section className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h3 className="text-slate-500 dark:text-zinc-400 text-xs font-medium uppercase tracking-wider">
-          ✨ Fresh ideas for you
-        </h3>
-        <span className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-zinc-500">
-          <Spinner small />
-          {message}
+        <span className="text-indigo-400 text-xs font-bold flex items-center gap-1 group-hover:translate-x-1 transition-transform">
+          Details →
         </span>
       </div>
 
-      {/* Recommended skeleton */}
-      <div>
-        <p className="text-[11px] font-semibold text-orange-500 uppercase tracking-wide mb-2">
-          🔥 Recommended for you
-        </p>
-        <div className="relative bg-orange-50 dark:bg-gradient-to-br dark:from-orange-500/5 dark:to-zinc-900 border border-orange-200 dark:border-orange-500/15 rounded-2xl p-5 animate-pulse">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="h-4 w-16 bg-orange-100 dark:bg-zinc-800 rounded-full" />
-            <div className="h-4 w-12 bg-orange-100 dark:bg-zinc-800 rounded-full" />
-          </div>
-          <div className="h-4 bg-orange-100 dark:bg-zinc-800 rounded w-full mb-2" />
-          <div className="h-4 bg-orange-100 dark:bg-zinc-800 rounded w-5/6 mb-4" />
-          <div className="h-3 bg-orange-50 dark:bg-zinc-800/60 rounded w-4/6 mb-5" />
-          <div className="h-8 bg-orange-100 dark:bg-zinc-800 rounded-xl w-28" />
-        </div>
-      </div>
-
-      {/* Alternatives skeleton */}
-      <div>
-        <p className="text-[11px] font-medium text-slate-400 dark:text-zinc-500 uppercase tracking-wide mb-2">
-          👇 Or try these
-        </p>
-        <div className="space-y-2">
-          {[0, 1].map((i) => (
-            <div key={i} className="bg-slate-100 dark:bg-zinc-800/40 border border-slate-200 dark:border-zinc-700/60 rounded-xl p-4 animate-pulse">
-              <div className="h-3 bg-slate-200 dark:bg-zinc-700 rounded w-full mb-2" />
-              <div className="h-3 bg-slate-200 dark:bg-zinc-700 rounded w-4/5 mb-3" />
-              <div className="h-3 bg-slate-100 dark:bg-zinc-700/60 rounded w-3/5" />
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ── Generated Ideas Section ───────────────────────────────────────────────────
-
-interface GeneratedSectionProps {
-  result: GeneratedIdeasResult;
-  onSelect: (idea: Idea) => void;
-  onToggleFavourite: (idea: Idea) => void;
-  onImprove: (idea: Idea) => void;
-  onRegenerate: () => void;
-  generating: boolean;
-  loadingMessage: string;
-}
-
-function GeneratedSection({
-  result,
-  onSelect,
-  onToggleFavourite,
-  onImprove,
-  onRegenerate,
-  generating,
-  loadingMessage,
-}: GeneratedSectionProps) {
-  if (generating) {
-    return <GeneratingSkeleton message={loadingMessage} />;
-  }
-
-  const rec  = result.recommended;
-  const alts = result.alternatives;
-
-  return (
-    <section className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h3 className="text-slate-500 dark:text-zinc-400 text-xs font-medium uppercase tracking-wider">
-            ✨ Fresh ideas for you
-          </h3>
-          {result._fallback && (
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-600 dark:text-amber-400 font-medium">
-              evergreen picks
-            </span>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={onRegenerate}
-          disabled={generating}
-          className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-zinc-500 hover:text-slate-700 dark:hover:text-zinc-300 transition-colors disabled:opacity-40"
-        >
-          ↺ Regenerate
-        </button>
-      </div>
-
-      {/* Recommended */}
-      <div>
-        <p className="text-[11px] font-semibold text-orange-500 uppercase tracking-wide mb-2">
-          🔥 Recommended for you
-        </p>
-        <RecommendedIdeaCard
-          idea={rec}
-          onSelect={onSelect}
-          onToggleFavourite={onToggleFavourite}
-          onImprove={onImprove}
-        />
-      </div>
-
-      {/* Alternatives */}
-      <div>
-        <p className="text-[11px] font-medium text-slate-400 dark:text-zinc-500 uppercase tracking-wide mb-2">
-          👇 Or try these
-        </p>
-        <div className="space-y-2">
-          {alts.map((idea) => (
-            <AlternativeIdeaCard
-              key={idea.id}
-              idea={idea}
-              onSelect={onSelect}
-              onToggleFavourite={onToggleFavourite}
-              onImprove={onImprove}
-            />
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function RecommendedIdeaCard({
-  idea,
-  onSelect,
-  onToggleFavourite,
-  onImprove,
-}: {
-  idea: IdeaWithMeta;
-  onSelect: (idea: Idea) => void;
-  onToggleFavourite: (idea: Idea) => void;
-  onImprove: (idea: Idea) => void;
-}) {
-  const [starting, setStarting] = useState(false);
-
-  const handleStart = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setStarting(true);
-    await onSelect(idea);
-    setStarting(false);
-  };
-
-  return (
-    <div className="relative bg-gradient-to-br from-orange-50 to-amber-50/50 dark:bg-none dark:bg-zinc-800/80 border border-orange-200 dark:border-orange-500/30 rounded-2xl p-5 hover:border-orange-300 dark:hover:border-orange-500/50 transition-all duration-200 group">
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[10px] font-bold text-orange-600 dark:text-orange-400 bg-orange-100 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 px-2 py-0.5 rounded-full uppercase tracking-wide">
-            Top pick
-          </span>
-          <WinScore score={idea.win_score} />
-        </div>
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onToggleFavourite(idea); }}
-          className={`flex-shrink-0 transition-colors ${
-            idea.is_favourite ? "text-orange-500" : "text-slate-300 dark:text-zinc-700 hover:text-slate-500 dark:hover:text-zinc-500"
-          }`}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill={idea.is_favourite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
-            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14 2 9.27l6.91-1.01L12 2z" />
-          </svg>
-        </button>
-      </div>
-
-      <p className="text-slate-800 dark:text-white text-sm font-medium leading-relaxed mb-3">{idea.idea}</p>
-
-      {idea.why_it_works && (
-        <div className="flex items-start gap-1.5 mb-4">
-          <span className="text-orange-500 text-[10px] mt-0.5 flex-shrink-0">💡</span>
-          <p className="text-slate-500 dark:text-zinc-200 text-xs italic leading-relaxed">{idea.why_it_works}</p>
-        </div>
-      )}
-
-      <div className="flex items-center gap-2">
-        {!idea.in_progress ? (
-          <button
-            type="button"
-            onClick={handleStart}
-            disabled={starting}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 text-white text-xs font-semibold transition-all disabled:opacity-50 shadow-md shadow-orange-500/20"
-          >
-            {starting ? <Spinner small /> : null}
-            {starting ? "Starting…" : "Start Chat →"}
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={handleStart}
-            disabled={starting}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-all disabled:opacity-50"
-          >
-            {starting ? <Spinner small /> : null}
-            {starting ? "Opening…" : "Continue →"}
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onImprove(idea); }}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 hover:border-orange-300 dark:hover:border-orange-500/40 text-slate-600 dark:text-zinc-400 hover:text-orange-600 dark:hover:text-orange-400 text-xs font-medium transition-all"
-        >
-          ✨ Improve
-        </button>
-        <span className="text-slate-400 dark:text-zinc-600 text-xs ml-auto">
-          {idea.source === "postra" ? "✨ AI generated" : "✍️ Your idea"}
-        </span>
-      </div>
     </div>
   );
 }
-
-function AlternativeIdeaCard({
-  idea,
-  onSelect,
-  onToggleFavourite,
-  onImprove,
-}: {
-  idea: IdeaWithMeta;
-  onSelect: (idea: Idea) => void;
-  onToggleFavourite: (idea: Idea) => void;
-  onImprove: (idea: Idea) => void;
-}) {
-  const [starting, setStarting] = useState(false);
-
-  const handleStart = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setStarting(true);
-    await onSelect(idea);
-    setStarting(false);
-  };
-
-  return (
-    <div className="bg-white dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-700 rounded-xl p-4 hover:border-slate-300 dark:hover:border-zinc-600 transition-all group shadow-sm">
-      <div className="flex items-start gap-3">
-        <div className="flex-1 min-w-0">
-          <p className="text-slate-800 dark:text-zinc-200 text-sm leading-relaxed">{idea.idea}</p>
-          {idea.why_it_works && (
-            <p className="text-slate-400 dark:text-zinc-500 text-xs italic mt-1.5 leading-relaxed">{idea.why_it_works}</p>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onToggleFavourite(idea); }}
-          className={`flex-shrink-0 mt-0.5 transition-colors ${
-            idea.is_favourite ? "text-orange-500" : "text-slate-300 dark:text-zinc-700 hover:text-slate-400 dark:hover:text-zinc-500"
-          }`}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill={idea.is_favourite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
-            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14 2 9.27l6.91-1.01L12 2z" />
-          </svg>
-        </button>
-      </div>
-
-      <div className="flex items-center justify-between mt-3">
-        <WinScore score={idea.win_score} />
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onImprove(idea); }}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-zinc-700 hover:bg-orange-50 dark:hover:bg-orange-500/10 text-slate-500 dark:text-zinc-400 hover:text-orange-600 dark:hover:text-orange-400 text-xs font-medium transition-all border border-slate-200 dark:border-zinc-600 hover:border-orange-200 dark:hover:border-orange-500/30"
-          >
-            ✨ Improve
-          </button>
-          {!idea.in_progress ? (
-            <button
-              type="button"
-              onClick={handleStart}
-              disabled={starting}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 dark:bg-zinc-700 hover:bg-slate-700 dark:hover:bg-zinc-600 text-white dark:text-zinc-200 text-xs font-medium transition-all disabled:opacity-50"
-            >
-              {starting ? <Spinner small /> : null}
-              {starting ? "Starting…" : "Use this →"}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleStart}
-              disabled={starting}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-all disabled:opacity-50"
-            >
-              {starting ? <Spinner small /> : null}
-              {starting ? "Opening…" : "Continue →"}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Saved Idea Row ────────────────────────────────────────────────────────────
-
-function IdeaRow({
-  idea,
-  highlighted,
-  onToggleFavourite,
-  onStartChat,
-  onDelete,
-  onImprove,
-}: {
-  idea: Idea;
-  highlighted: boolean;
-  onToggleFavourite: (idea: Idea) => void;
-  onStartChat: (idea: Idea) => void;
-  onDelete: (idea: Idea) => void;
-  onImprove: (idea: Idea) => void;
-}) {
-  const [starting, setStarting] = useState(false);
-
-  const handleStartChat = async () => {
-    setStarting(true);
-    await onStartChat(idea);
-    setStarting(false);
-  };
-
-  return (
-    <div className={`relative bg-white dark:bg-zinc-900 border rounded-xl p-4 transition-all duration-200 shadow-sm ${
-      highlighted
-        ? "border-orange-200 dark:border-orange-500/30 bg-orange-50/30 dark:bg-orange-500/5"
-        : "border-slate-200 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700"
-    }`}>
-      <div className="flex items-start gap-3">
-        {/* Favourite */}
-        <button
-          type="button"
-          onClick={() => onToggleFavourite(idea)}
-          className={`mt-0.5 flex-shrink-0 transition-colors duration-150 ${
-            idea.is_favourite ? "text-orange-500" : "text-slate-300 dark:text-zinc-700 hover:text-slate-400 dark:hover:text-zinc-500"
-          }`}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill={idea.is_favourite ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
-            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14 2 9.27l6.91-1.01L12 2z" />
-          </svg>
-        </button>
-
-        {/* Content */}
-        <div className="flex-1 min-w-0">
-          {/* Score + source badges */}
-          <div className="flex items-center gap-2 flex-wrap mb-1.5">
-            <span className={`text-xs px-1.5 py-0.5 rounded border ${
-              idea.source === "postra"
-                ? "text-orange-500 dark:text-orange-400/70 bg-orange-50 dark:bg-orange-500/5 border-orange-200 dark:border-orange-500/15"
-                : "text-slate-500 dark:text-zinc-500 bg-slate-100 dark:bg-zinc-800 border-slate-200 dark:border-zinc-700"
-            }`}>
-              {idea.source === "postra" ? "✨ AI" : "✍️ You"}
-            </span>
-
-            {idea.win_score != null && idea.win_score > 0 && (
-              <WinScore score={idea.win_score} />
-            )}
-
-            {!!idea.in_progress && (
-              <span className="text-xs px-1.5 py-0.5 rounded border text-blue-600 dark:text-blue-400/70 bg-blue-50 dark:bg-blue-500/5 border-blue-200 dark:border-blue-500/15">
-                ⏳ In progress
-              </span>
-            )}
-          </div>
-
-          {/* Idea text */}
-          <p className="text-slate-800 dark:text-zinc-200 text-sm leading-relaxed">{idea.idea}</p>
-
-          {/* Why it works */}
-          {idea.why_it_works && (
-            <div className="flex items-start gap-1.5 mt-1.5">
-              <span className="text-orange-500 text-[10px] mt-0.5 flex-shrink-0">💡</span>
-              <p className="text-slate-400 dark:text-zinc-500 text-xs italic leading-relaxed">{idea.why_it_works}</p>
-            </div>
-          )}
-
-          {/* Date + Improve button */}
-          <div className="flex items-center gap-3 mt-2">
-            <p className="text-slate-400 dark:text-zinc-600 text-xs">
-              {new Date(idea.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
-            </p>
-            <button
-              type="button"
-              onClick={() => onImprove(idea)}
-              className="flex items-center gap-1 text-xs text-slate-400 dark:text-zinc-600 hover:text-orange-500 dark:hover:text-orange-400 transition-colors font-medium"
-            >
-              ✨ Improve this idea
-            </button>
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {idea.source === "user" && (
-            <button
-              type="button"
-              onClick={() => onDelete(idea)}
-              className="text-slate-400 dark:text-zinc-600 hover:text-red-500 dark:hover:text-red-400 transition-colors duration-150"
-              title="Delete idea"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </button>
-          )}
-
-          {/* Actions inside IdeaRow */}
-          {!idea.in_progress ? (
-            <button
-              type="button"
-              onClick={handleStartChat}
-              disabled={starting}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-white text-xs font-semibold transition-all duration-150 disabled:opacity-50 shadow-sm shadow-orange-500/20"
-            >
-              {starting ? <Spinner small /> : null}
-              {starting ? "Starting…" : "Start Chat →"}
-            </button>
-          ) : (idea as any).post_status === "published" ? (
-            // 🟢 Published Button
-            <button
-              type="button"
-              onClick={handleStartChat}
-              disabled={starting}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-all duration-150 disabled:opacity-50"
-            >
-              {starting ? <Spinner small /> : null}
-              {starting ? "Opening…" : "View Post →"}
-            </button>
-          ) : (
-            // 🟢 Continue Button
-            <button
-              type="button"
-              onClick={handleStartChat}
-              disabled={starting}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-all duration-150 disabled:opacity-50"
-            >
-              {starting ? <Spinner small /> : null}
-              {starting ? "Opening…" : "Continue →"}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function IdeasPage() {
   const navigate = useNavigate();
-  const [ideas, setIdeas] = useState<Idea[]>([]);
+  const [ideas, setIdeas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saveText, setSaveText] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [isGibberish, setIsGibberish] = useState(false);
-  const [confusedWarning, setConfusedWarning] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [generating, setGenerating] = useState(false);
-  const [generateError, setGenerateError] = useState<string | null>(null);
-  const [generatedResult, setGeneratedResult] = useState<GeneratedIdeasResult | null>(null);
 
-  // Temporary popup bypass state
-  const [placeholderTarget, setPlaceholderTarget] = useState<string | null>(null);
+  // Modal states
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [selectedIdeaDetail, setSelectedIdeaDetail] = useState<any | null>(null);
 
-  // Improve idea modal
-  const [improveTarget, setImproveTarget] = useState<Idea | null>(null);
-  const generateAbortRef = useRef<AbortController | null>(null);
-  const generateRequestId = useRef(0);
-  const loadingMessage = useLoadingMessage(generating, LOADING_MESSAGES);
+  // Safety Delete States
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+
   const fetchIdeas = useCallback(async () => {
     try {
+      setLoading(true);
       const data = await listIdeas();
-      setIdeas(data);
+      
+      // 🟢 V2 Fix: Only show ideas that have NOT been converted into posts yet
+      const plainIdeas = data.filter((idea: any) => !idea.post_id);
+      setIdeas(plainIdeas);
     } catch (e: unknown) {
       setFetchError((e as Error).message);
     } finally {
@@ -759,378 +519,141 @@ export default function IdeasPage() {
     }
   }, []);
 
-  useEffect(() => { fetchIdeas(); }, [fetchIdeas]);
+  useEffect(() => { 
+    fetchIdeas(); 
+  }, [fetchIdeas]);
 
-  // ── Generate structured ideas ─────────────────────────────────────────────
+  const handleDeleteTrigger = (id: string) => {
+    setDeleteTargetId(id);
+  };
 
-const handleGenerate = async () => {
-  // Cancel any in-flight request before firing a new one
-  generateAbortRef.current?.abort();
-  const controller = new AbortController();
-  generateAbortRef.current = controller;
+  const confirmDeleteIdea = async (id: string) => {
+    setDeleteTargetId(null);
+    const previousIdeas = [...ideas];
+    setIdeas((prev) => prev.filter((i) => i.id !== id));
 
-  setGenerating(true);
-  setGenerateError(null);
-  try {
-    const result = await generateIdeas(controller.signal);
-    setGeneratedResult(result);
-    setIdeas((prev) => {
-      const newIds = new Set([result.recommended.id, ...result.alternatives.map((a) => a.id)]);
-      const filtered = prev.filter((i) => !newIds.has(i.id));
-      return [result.recommended, ...result.alternatives, ...filtered];
-    });
-  } catch (e: unknown) {
-    if ((e as Error).name === "AbortError") return; // cancelled — ignore silently
-    setGenerateError((e as Error).message);
-  } finally {
-    setGenerating(false);
-  }
-};
-
-  // ── Save user idea ────────────────────────────────────────────────────────
-
-  const handleSave = async () => {
-    const text = saveText.trim();
-    if (!text) return;
-
-    setSaveError(null);
-    setIsGibberish(false);
-    setConfusedWarning(null);
-
-    if (classifyIdea(text) === "gibberish") {
-      setIsGibberish(true);
-      return;
-    }
-
-    setSaving(true);
     try {
-      const saved = await saveUserIdea(text);
-      setIdeas((prev) => [saved, ...prev]);
-      setSaveText("");
-      if (saved.warning && saved.message) {
-        setConfusedWarning(saved.message);
-      }
-    } catch (e: unknown) {
-      if (e instanceof ApiError) {
-        if (e.type === "INVALID") {
-          setIsGibberish(true);
-        } else {
-          setSaveError(e.message);
-        }
-      } else {
-        setSaveError((e as Error).message);
-      }
-    } finally {
-      setSaving(false);
+      await deleteIdea(id);
+    } catch (e: any) {
+      setIdeas(previousIdeas);
+      alert("Failed to delete idea from database: " + e.message);
     }
   };
-
-  const handleToggleFavourite = async (idea: Idea) => {
-    const next = !idea.is_favourite;
-    setIdeas((prev) => prev.map((i) => i.id === idea.id ? { ...i, is_favourite: next } : i));
-    if (generatedResult) {
-      setGeneratedResult((r) => {
-        if (!r) return r;
-        return {
-          ...r,
-          recommended: r.recommended.id === idea.id ? { ...r.recommended, is_favourite: next } : r.recommended,
-          alternatives: r.alternatives.map((a) => a.id === idea.id ? { ...a, is_favourite: next } : a) as [IdeaWithMeta, IdeaWithMeta],
-        };
-      });
-    }
-    try {
-      await toggleFavourite(idea.id, next);
-    } catch {
-      setIdeas((prev) => prev.map((i) => i.id === idea.id ? { ...i, is_favourite: !next } : i));
-    }
-  };
-
-  const handleDelete = async (idea: Idea) => {
-    if (idea.in_progress) {
-      const confirmed = window.confirm(
-        "Deleting this will clear progress. Continue?"
-      );
-      if (!confirmed) return;
-    }
-    setIdeas((prev) => prev.filter((i) => i.id !== idea.id));
-    if (generatedResult) {
-      if (
-        generatedResult.recommended.id === idea.id ||
-        generatedResult.alternatives.some((a) => a.id === idea.id)
-      ) {
-        setGeneratedResult(null);
-      }
-    }
-    try {
-      await deleteIdea(idea.id);
-    } catch (e: unknown) {
-      setIdeas((prev) => [idea, ...prev]);
-      console.error("Failed to delete idea:", e);
-    }
-  };
-
-  const handleStartChat = async (idea: any) => {
-    // 🟢 Chat page completely bypass ho chuki hai, ab popup trigger hoga
-    setPlaceholderTarget(idea.idea);
-  };
-
-  // ── Improve idea ──────────────────────────────────────────────────────────
-
-  const handleImprove = (idea: Idea) => {
-    setImproveTarget(idea);
-  };
-
-  const handleApplyImprovement = (improvedText: string, whyItWorks: string, winScore: number) => {
-    if (!improveTarget) return;
-    // Update the idea in-place locally
-    setIdeas((prev) => prev.map((i) =>
-      i.id === improveTarget.id
-        ? { ...i, idea: improvedText, why_it_works: whyItWorks, win_score: winScore }
-        : i
-    ));
-    if (generatedResult) {
-      setGeneratedResult((r) => {
-        if (!r) return r;
-        return {
-          ...r,
-          recommended: r.recommended.id === improveTarget.id
-            ? { ...r.recommended, idea: improvedText, why_it_works: whyItWorks, win_score: winScore }
-            : r.recommended,
-          alternatives: r.alternatives.map((a) =>
-            a.id === improveTarget.id
-              ? { ...a, idea: improvedText, why_it_works: whyItWorks, win_score: winScore }
-              : a
-          ) as [IdeaWithMeta, IdeaWithMeta],
-        };
-      });
-    }
-    setImproveTarget(null);
-  };
-
-  const publishedIdeas = ideas.filter((i: any) => i.post_status === "published");
-  const activeIdeas = ideas.filter((i: any) => i.post_status !== "published");
-
-  const isHighlighted = (idea: Idea) => idea.source === "user" || idea.is_favourite;
-  const highlighted = activeIdeas.filter(isHighlighted);
-  const generatedIds = generatedResult ? new Set([generatedResult.recommended.id, ...generatedResult.alternatives.map((a) => a.id)]) : new Set<string>();
-  const rest = activeIdeas.filter((i) => !isHighlighted(i) && !generatedIds.has(i.id));
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8 space-y-8">
+    <div className="max-w-6xl mx-auto px-4 pb-8 space-y-6">
 
-      {/* ── Header + Generate CTA ─────────────────────────────────────────── */}
-      <section className="flex items-center justify-between">
+      {/* ── HEADER & CREATE TRIGGER ── */}
+      <section className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-200 dark:border-zinc-800">
         <div>
-          <h2 className="text-slate-900 dark:text-white font-semibold text-base">Ideas</h2>
-          <p className="text-slate-500 dark:text-zinc-500 text-sm mt-0.5">Generate fresh ideas or save your own.</p>
+          <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Idea Planner</h2>
+          <p className="text-slate-500 dark:text-zinc-400 text-sm mt-1">Plan dates, draft concepts, and directly generate post packages.</p>
         </div>
         <button
           type="button"
-          onClick={handleGenerate}
-          disabled={generating}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-400 active:scale-95 text-white text-sm font-semibold transition-all duration-150 disabled:opacity-50 shadow-lg shadow-orange-500/20"
+          onClick={() => setShowCreateModal(true)}
+          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl shadow-lg shadow-indigo-500/10 active:scale-95 transition-all self-start sm:self-auto"
         >
-          {generating ? <><Spinner /> {loadingMessage}</> : <>✨ Generate Ideas</>}
+          <span>💡</span> Create New Idea
         </button>
       </section>
 
-      {/* Generate error */}
-      {generateError && (
-        <div className="flex items-start gap-3 p-3.5 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20">
-          <span className="text-base leading-none flex-shrink-0">⚠️</span>
-          <p className="text-red-600 dark:text-red-400 text-sm">{generateError}</p>
+      {fetchError && (
+        <p className="text-red-500 text-sm">{fetchError}</p>
+      )}
+
+      {/* ── IDEAS PLANNED CARDS GRID ── */}
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 py-12">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4 animate-pulse h-48" />
+          ))}
         </div>
-      )}
-
-      {/* ── Generated Ideas Section (or skeleton while loading) ───────────── */}
-      {(generatedResult || generating) && (
-        <GeneratedSection
-          result={generatedResult ?? { recommended: {} as IdeaWithMeta, alternatives: [{} as IdeaWithMeta, {} as IdeaWithMeta] }}
-          onSelect={handleStartChat}
-          onToggleFavourite={handleToggleFavourite}
-          onImprove={handleImprove}
-          onRegenerate={handleGenerate}
-          generating={generating}
-          loadingMessage={loadingMessage}
-        />
-      )}
-
-      {/* Divider when both sections shown */}
-      {(generatedResult || generating) && (highlighted.length > 0 || rest.length > 0) && (
-        <div className="border-t border-slate-200 dark:border-zinc-800" />
-      )}
-
-      {/* ── Save idea for later ───────────────────────────────────────────── */}
-      <section>
-        <h2 className="text-slate-900 dark:text-white font-semibold text-base mb-1">Save idea for later</h2>
-        <p className="text-slate-500 dark:text-zinc-500 text-sm mb-4">
-          Capture a quick idea now — no AI, just save it before it slips away.
-        </p>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={saveText}
-            onChange={(e) => {
-              setSaveText(e.target.value);
-              setSaveError(null);
-              setIsGibberish(false);
-              setConfusedWarning(null);
-            }}
-            onKeyDown={(e) => { if (e.key === "Enter" && saveText.trim()) handleSave(); }}
-            placeholder="Write your idea here…"
-            className={`flex-1 bg-white dark:bg-zinc-800 border rounded-xl px-4 py-2.5 text-slate-800 dark:text-zinc-200 text-sm placeholder-slate-400 dark:placeholder-zinc-600 outline-none transition-colors duration-150 ${
-              isGibberish
-                ? "border-red-400 dark:border-red-500/60 focus:border-red-500"
-                : "border-slate-300 dark:border-zinc-700 focus:border-orange-500"
-            }`}
-          />
+      ) : ideas.length === 0 ? (
+        <div className="text-center py-20 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl p-8 max-w-md mx-auto space-y-4 shadow-sm">
+          <div className="w-16 h-16 mx-auto rounded-full bg-slate-50 dark:bg-zinc-800 flex items-center justify-center text-2xl">
+            📅
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">Your Planner is Empty</h3>
+            <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1 max-w-[280px] mx-auto leading-relaxed">
+              No ideas planned yet. Start by generating niche ideas or write down your custom concept today!
+            </p>
+          </div>
           <button
             type="button"
-            onClick={handleSave}
-            disabled={!saveText.trim() || saving}
-            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white dark:bg-zinc-800 border border-slate-300 dark:border-zinc-700 hover:border-slate-400 dark:hover:border-zinc-500 text-slate-700 dark:text-zinc-300 text-sm font-medium transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+            onClick={() => setShowCreateModal(true)}
+            className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-md active:scale-95 transition-all"
           >
-            {saving ? <Spinner small /> : null}
-            {saving ? "Saving…" : "Save"}
+            Create New Idea
           </button>
         </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {ideas.map((idea: any) => (
+            <CustomIdeaCard
+              key={idea.id}
+              idea={idea}
+              onOpenDetails={(item) => setSelectedIdeaDetail(item)} 
+              onDelete={handleDeleteTrigger}
+            />
+          ))}
+        </div>
+      )}
 
-        {isGibberish && (
-          <div className="mt-3 flex items-start gap-3 p-3.5 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20">
-            <span className="text-base leading-none flex-shrink-0 mt-0.5">⚠️</span>
-            <div className="flex-1 min-w-0">
-              <p className="text-red-600 dark:text-red-400 text-sm font-semibold">Invalid text</p>
-              <p className="text-slate-500 dark:text-zinc-500 text-xs mt-0.5">
-                This doesn't look like a real idea. Write something meaningful, or let AI generate ideas for you.
+      {/* ── CREATE IDEA PLANNER MODAL OVERLAY ── */}
+      {showCreateModal && (
+        <CreateIdeaModal
+          onClose={() => setShowCreateModal(false)}
+          onSaved={fetchIdeas}
+        />
+      )}
+
+      {/* ── DETAILS & 1-CLICK GENERATION MODAL OVERLAY ── */}
+      {selectedIdeaDetail && (
+        <IdeaDetailsModal
+          idea={selectedIdeaDetail}
+          onClose={() => setSelectedIdeaDetail(null)}
+          onPostCreated={(postId) => {
+            setSelectedIdeaDetail(null);
+            navigate(`/chat/${postId}`); 
+          }}
+        />
+      )}
+
+      {/* ── SAFETY DELETE CONFIRMATION OVERLAY ── */}
+      {deleteTargetId && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl w-full max-w-sm p-6 text-center space-y-4 shadow-xl animate-in zoom-in-95 duration-200">
+            <div className="w-12 h-12 bg-red-50 dark:bg-red-500/10 text-red-500 dark:text-red-400 rounded-full flex items-center justify-center mx-auto text-xl">
+              ⚠️
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">Delete Idea?</h3>
+              <p className="text-xs text-slate-500 dark:text-zinc-400 leading-relaxed">
+                Are you sure you want to delete this idea? If you created a draft post for it, that post will <span className="font-bold text-red-500">also be permanently deleted</span> [13].
               </p>
+            </div>
+            <div className="flex gap-3 pt-2">
               <button
                 type="button"
-                onClick={() => {
-                  setIsGibberish(false);
-                  setSaveText("");
-                  handleGenerate();
-                }}
-                className="mt-2 text-xs font-semibold text-orange-500 hover:text-orange-400 transition-colors"
+                onClick={() => setDeleteTargetId(null)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 font-semibold text-xs"
               >
-                ✨ Generate ideas instead →
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => confirmDeleteIdea(deleteTargetId)}
+                className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold text-xs shadow-md shadow-red-500/20 active:scale-95 transition-all"
+              >
+                Delete Permanently
               </button>
             </div>
           </div>
-        )}
-
-        {confusedWarning && (
-          <div className="mt-3 flex items-start gap-3 p-3.5 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20">
-            <span className="text-base leading-none flex-shrink-0 mt-0.5">🤔</span>
-            <div className="flex-1 min-w-0">
-              <p className="text-amber-600 dark:text-amber-400 text-sm font-semibold">Idea saved, but it's a bit vague</p>
-              <p className="text-slate-500 dark:text-zinc-500 text-xs mt-0.5">{confusedWarning}</p>
-              <button type="button" onClick={() => setConfusedWarning(null)} className="mt-2 text-xs text-slate-400 dark:text-zinc-600 hover:text-slate-600 dark:hover:text-zinc-400 transition-colors">
-                Dismiss
-              </button>
-            </div>
-          </div>
-        )}
-
-        {saveError && (
-          <p className="text-red-500 text-xs mt-2">{saveError}</p>
-        )}
-      </section>
-
-      {/* ── Saved Ideas List ──────────────────────────────────────────────── */}
-      {loading ? (
-        <div className="flex items-center justify-center py-12 text-slate-400 dark:text-zinc-600">
-          <Spinner /> <span className="ml-2 text-sm">Loading ideas…</span>
         </div>
-      ) : fetchError ? (
-        <p className="text-red-500 text-sm">{fetchError}</p>
-      ) : ideas.length === 0 && !generatedResult && !generating ? (
-        <div className="text-center py-12">
-          <p className="text-slate-400 dark:text-zinc-600 text-sm">No ideas yet. Generate some or save one above.</p>
-        </div>
-      ) : (
-        <>
-          {highlighted.length > 0 && (
-            <section>
-              <h3 className="text-slate-400 dark:text-zinc-400 text-xs font-medium uppercase tracking-wider mb-3">
-                ★ Your ideas &amp; favourites
-              </h3>
-              <div className="space-y-2">
-                {highlighted.map((idea) => (
-                  <IdeaRow
-                    key={idea.id}
-                    idea={idea}
-                    highlighted={true}
-                    onToggleFavourite={handleToggleFavourite}
-                    onStartChat={handleStartChat}
-                    onDelete={handleDelete}
-                    onImprove={handleImprove}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-
-          {rest.length > 0 && (
-            <section>
-              <h3 className="text-slate-400 dark:text-zinc-400 text-xs font-medium uppercase tracking-wider mb-3">
-                All generated ideas
-              </h3>
-              <div className="space-y-2">
-                {rest.map((idea) => (
-                  <IdeaRow
-                    key={idea.id}
-                    idea={idea}
-                    highlighted={false}
-                    onToggleFavourite={handleToggleFavourite}
-                    onStartChat={handleStartChat}
-                    onDelete={handleDelete}
-                    onImprove={handleImprove}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-        </>
       )}
 
-      {publishedIdeas.length > 0 && (
-        <section className="opacity-70 grayscale-[0.3] hover:opacity-100 hover:grayscale-0 transition-all">
-          <h3 className="text-slate-400 dark:text-zinc-500 text-xs font-medium uppercase tracking-wider mb-3 flex items-center gap-2">
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-            Published Posts
-          </h3>
-          <div className="space-y-2">
-            {publishedIdeas.map((idea) => (
-              <IdeaRow
-                key={idea.id}
-                idea={idea}
-                highlighted={false}
-                onToggleFavourite={handleToggleFavourite}
-                onStartChat={handleStartChat}
-                onDelete={handleDelete}
-                onImprove={handleImprove}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Placeholder Modal */}
-      {placeholderTarget && (
-        <PlaceholderModal
-          ideaText={placeholderTarget}
-          onClose={() => setPlaceholderTarget(null)}
-        />
-      )}
-
-      {/* Improve Idea Modal */}
-      {improveTarget && (
-        <ImproveModal
-          idea={improveTarget}
-          onClose={() => setImproveTarget(null)}
-          onApply={handleApplyImprovement}
-        />
-      )}
     </div>
   );
 }
