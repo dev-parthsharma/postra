@@ -1122,3 +1122,51 @@ Ensure the response is fully completed and not cut off. Be punchy and highly eng
     )
 
     return post_data
+
+# ── ADD THIS AT THE BOTTOM OF backend/app/services/ideas_service.py ──
+
+async def handle_generate_single_field(supabase, user_id: str, post_id: str, field_name: str) -> dict:
+    from app.integrations.queries import get_post_by_id, get_user_profile
+    post = get_post_by_id(supabase, post_id, user_id)
+    if not post:
+        raise ValueError("Post not found")
+        
+    # Get the raw idea text
+    idea_row = supabase.table("ideas").select("idea").eq("id", post["idea_id"]).single().execute()
+    if not idea_row.data:
+        raise ValueError("Idea not found")
+    idea_text = idea_row.data["idea"]
+    
+    profile = get_user_profile(supabase, user_id) or {}
+    language = profile.get("language", "english")
+    niche = profile.get("niche", "Lifestyle")
+    tone = profile.get("tone", "Casual & fun")
+    style = profile.get("style", "Face-to-camera talking")
+
+    spoken_lang = "Hinglish (a natural mix of Hindi and English words)" if language == "hinglish" else "English"
+
+    # 🟢 Custom high-converting prompts for each unique field
+    prompts = {
+        "hook": f'Generate exactly 1 highly engaging Instagram Reel hook for the idea: "{idea_text}". Target Niche: {niche}. Tone: {tone}. Language: {spoken_lang}. Keep it under 15 words.',
+        "caption": f'Write a highly engaging, post-ready Instagram caption with emojis for the idea: "{idea_text}". Include 5-8 relevant hashtags at the bottom. STRICT RULE: The CAPTION TEXT ITSELF MUST ALWAYS BE PURE ENGLISH.',
+        "script": f'Write a spoken video script for the idea: "{idea_text}". Spoken language: {spoken_lang}. Format exactly as-is with "Hook:", "Body:", "CTA:" and no extra camera directions.',
+        "shooting_guide": f'Provide a concise, bullet-point shooting guide (lighting, camera angles, B-roll suggestions) for the idea: "{idea_text}". Niche: {niche}.',
+        "editing_guide": f'Provide a concise, bullet-point editing guide (text overlays, pacing, cut styles, sound effect suggestions) for the idea: "{idea_text}". Style: {style}.'
+    }
+
+    prompt = prompts.get(field_name.lower())
+    if not prompt:
+        raise ValueError(f"Invalid field name: {field_name}")
+
+    # Generate content
+    from app.services.llm_service import generate_content_gemini_first
+    raw = generate_content_gemini_first(prompt).strip()
+
+    # Clean markdown
+    if raw.startswith("```"):
+        lines = raw.split("\n")
+        if lines[0].startswith("```"): lines = lines[1:]
+        if lines and lines[-1].startswith("```"): lines = lines[:-1]
+        raw = "\n".join(lines).strip()
+
+    return {"generated_text": raw}

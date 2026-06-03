@@ -103,6 +103,14 @@ class ValidateIdeaRequest(BaseModel):
 class GeneratePostForExistingIdeaRequest(BaseModel):
     idea_id: str
 
+class ScheduleIdeaRequest(BaseModel):
+    scheduled_date: Optional[str] = None
+
+class GenerateFieldRequest(BaseModel):
+    field_name: str
+
+class UpdateStreakTargetRequest(BaseModel):
+    streak_frequency: str = Field(..., min_length=1)
 
 # ── Health ────────────────────────────────────────────────────────────────────
 
@@ -565,4 +573,68 @@ async def manual_publish_route(
         
         return {"success": True, "message": "Marked as published manually", "streak_count": stat["streak_count"]}
     except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    
+@router.patch("/ideas/{idea_id}/schedule")
+def schedule_idea_endpoint(
+    idea_id: str,
+    body: ScheduleIdeaRequest,
+    user_id: str = Depends(get_current_user_id),
+    supabase=Depends(get_supabase)
+):
+    """Directly updates or sets the scheduled planner date of an idea."""
+    try:
+        resp = supabase.table("ideas").update({
+            "scheduled_date": body.scheduled_date
+        }).eq("id", idea_id).eq("user_id", user_id).execute()
+        
+        if not resp.data:
+            raise HTTPException(status_code=400, detail="Failed to update scheduled date")
+        return {"success": True, "idea": resp.data[0]}
+    except Exception as e:
+        print("SCHEDULE IDEA ENDPOINT ERROR:", str(e))
+        raise HTTPException(status_code=502, detail=str(e))
+    
+@router.post("/chat/{chat_id}/generate-field")
+async def generate_field_endpoint(
+    chat_id: str,
+    body: GenerateFieldRequest,
+    user_id: str = Depends(get_current_user_id),
+    supabase=Depends(get_supabase),
+):
+    """Generates content for a single empty field (e.g. shooting/editing guide) directly."""
+    try:
+        result = await ideas_service.handle_generate_single_field(
+            supabase, user_id, chat_id, body.field_name
+        )
+        return result
+    except Exception as e:
+        print("GENERATE FIELD ERROR:", str(e))
+        raise HTTPException(status_code=502, detail=str(e))
+    
+@router.patch("/profile/streak-target")
+async def update_streak_target_endpoint(
+    body: UpdateStreakTargetRequest,
+    user_id: str = Depends(get_current_user_id),
+    supabase=Depends(get_supabase)
+):
+    """
+    Saves the user's custom posting frequency target into their profile
+    and clears any old testing stats history so they start with a clean 100% fresh streak.
+    """
+    try:
+        # 1. Save new streak target setting
+        resp = supabase.table("user_profile").update({
+            "streak_frequency": body.streak_frequency
+        }).eq("id", user_id).execute()
+        
+        if not resp.data:
+            raise HTTPException(status_code=400, detail="Failed to save streak target")
+            
+        # 2. 🟢 Clear old stats history rows so streak resets back to 0 cleanly
+        supabase.table("user_stats").delete().eq("user_id", user_id).execute()
+        
+        return {"success": True, "profile": resp.data[0]}
+    except Exception as e:
+        print("UPDATE STREAK TARGET ERROR:", str(e))
         raise HTTPException(status_code=502, detail=str(e))

@@ -1,4 +1,6 @@
 // src/pages/Dashboard.tsx
+// Refactored V2: Dashboard Home featuring dynamic weekly content calendar & interactive posting streak targets.
+
 import { useNavigate } from "react-router-dom";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import StatsCards from "../components/dashboard/StatsCards";
@@ -65,7 +67,7 @@ export default function Dashboard() {
           </p>
         </div>
 
-        {/* 🟢 CHANGED: Generate Idea is now Create Post */}
+        {/* Create Post trigger button */}
         <button
           type="button"
           onClick={() => setShowNewPost(true)}
@@ -90,17 +92,21 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Stats Cards (🟢 FIXED: Added streakFrequency and onSaved trigger props) */}
       <StatsCards
         postsThisMonth={data?.postsThisMonth ?? 0}
         ideasSaved={data?.ideasSaved ?? 0}
         postStreak={data?.postStreak ?? 0}
         loading={loading}
+        streakFrequency={data?.streakFrequency ?? null}
+        onSaved={() => window.location.reload()} // Automatic dashboard refresh
       />
 
       <div className="mt-4">
         <TodayCTA
-          cta={data?.todayCTA ?? { type: "none" }}
+          cta={data?.todayCTA ?? { type: "mindset" }}
           loading={loading}
+          onOpenNewPost={() => setShowNewPost(true)} // Modal trigger handler
         />
       </div>
 

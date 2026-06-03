@@ -270,3 +270,12 @@ export async function generatePostForExistingIdea(ideaId: string): Promise<{ id:
   });
   return handleResponse<{ id: string }>(res);
 }
+
+export async function scheduleIdea(ideaId: string, scheduledDate: string | null): Promise<{ success: boolean; idea: any }> {
+  const res = await fetch(`${API_BASE}/api/ideas/${ideaId}/schedule`, {
+    method: "PATCH",
+    headers: await authHeaders(),
+    body: JSON.stringify({ scheduled_date: scheduledDate }),
+  });
+  return handleResponse(res);
+}

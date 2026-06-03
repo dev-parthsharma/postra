@@ -89,3 +89,12 @@ export async function unlockScriptApi(chatId: string): Promise<{ script: string 
   });
   return handleResponse<{ script: string }>(res);
 }
+
+export async function generateSingleField(chatId: string, fieldName: string): Promise<{ generated_text: string }> {
+  const res = await fetch(`${API_BASE}/api/chat/${chatId}/generate-field`, {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ field_name: fieldName }),
+  });
+  return handleResponse<{ generated_text: string }>(res);
+}

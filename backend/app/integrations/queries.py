@@ -271,36 +271,100 @@ def delete_idea(supabase, idea_id: str, user_id: str) -> None:
 # ── Stats & Streak ────────────────────────────────────────────────────────────
 
 def update_user_streak(supabase, user_id: str) -> dict:
+    """
+    V2: Calculates and updates consistency streaks dynamically based on 
+    user's custom frequency settings, querying the last post date direct from 'user_stats'.
+    Supports strict multi-day intervals and multi-post targets per day.
+    """
     from datetime import date, timedelta
     today = date.today()
     today_str = today.isoformat()
     yesterday_str = (today - timedelta(days=1)).isoformat()
     
-    today_stat = supabase.table("user_stats").select("*").eq("user_id", user_id).eq("stat_date", today_str).execute()
-    
-    if today_stat.data:
-        current = today_stat.data[0]
-        new_count = current["posts_count"] + 1
-        res = supabase.table("user_stats").update({"posts_count": new_count}).eq("id", current["id"]).execute()
-        return res.data[0] if res.data else current
+    # 1. Fetch user's custom frequency setting from profile
+    profile = supabase.table("user_profile").select("streak_frequency").eq("id", user_id).single().execute()
+    if not profile.data:
+        return {"streak_count": 0}
         
-    yesterday_stat = supabase.table("user_stats").select("*").eq("user_id", user_id).eq("stat_date", yesterday_str).execute()
-    
-    if yesterday_stat.data and not yesterday_stat.data[0]["is_break"]:
-        new_streak = yesterday_stat.data[0]["streak_count"] + 1
-    else:
-        new_streak = 1
+    freq = profile.data.get("streak_frequency")
+    if not freq:
+        return {"streak_count": 0} # No active streak configured
         
-    new_record = {
-        "user_id": user_id,
-        "stat_date": today_str,
-        "posts_count": 1,
-        "is_break": False,
-        "streak_count": new_streak
+    limits = {
+        "2_day": 1,
+        "1_day": 1,
+        "1_2days": 2,
+        "1_3days": 3,
+        "1_5days": 5,
+        "1_week": 7
     }
+    max_gap = limits.get(freq, 1)
     
-    res = supabase.table("user_stats").insert(new_record).execute()
-    return res.data[0] if res.data else new_record
+    # 2. Get today's stats row if it already exists
+    today_stat = supabase.table("user_stats").select("*").eq("user_id", user_id).eq("stat_date", today_str).execute()
+    today_stat_row = today_stat.data[0] if today_stat.data else None
+    
+    # 3. Get the latest historical stats row where posts_count > 0 (excluding today's row if it exists)
+    last_post_query = supabase.table("user_stats").select("*").eq("user_id", user_id).gt("posts_count", 0)
+    if today_stat_row:
+        last_post_query = last_post_query.neq("id", today_stat_row["id"])
+        
+    last_post_stat = last_post_query.order("stat_date", desc=True).limit(1).execute()
+    latest_stat_row = last_post_stat.data[0] if last_post_stat.data else None
+    
+    current_streak = latest_stat_row["streak_count"] if latest_stat_row else 0
+    posts_today = (today_stat_row["posts_count"] if today_stat_row else 0) + 1
+    
+    # 4. Core Math Streak Evaluation
+    if freq == "2_day":
+        # ── SPECIAL 2 POSTS PER DAY LOGIC ──
+        if posts_today == 2:
+            # Streak only increments when they successfully hit exactly 2 posts today
+            # We also check if yesterday's goal of 2 posts was met
+            yesterday_stat = supabase.table("user_stats").select("posts_count").eq("user_id", user_id).eq("stat_date", yesterday_str).execute()
+            yesterday_posts = yesterday_stat.data[0]["posts_count"] if yesterday_stat.data else 0
+            
+            if yesterday_posts >= 2 or current_streak == 0:
+                new_streak = current_streak + 1
+            else:
+                new_streak = 1 # Yesterday target was missed, start new streak of 1
+        else:
+            # 1st post of today: Keep current streak count active, do not increment yet
+            new_streak = current_streak if current_streak > 0 else 0
+    else:
+        # ── MULTI-DAY INTERVAL LOGIC (e.g. 1 post every 3 days) ──
+        if not latest_stat_row:
+            new_streak = 1
+        else:
+            last_posted_date = date.fromisoformat(latest_stat_row["stat_date"])
+            gap_days = (today - last_posted_date).days
+            
+            if gap_days <= 0:
+                # Over-posting on same day: keeps current streak active (No double increment, no penalty)
+                new_streak = current_streak if current_streak > 0 else 1
+            elif gap_days <= max_gap:
+                # Success within limit window! Streak increments by 1
+                new_streak = current_streak + 1
+            else:
+                # Exceeded maximum gap limit! Streak breaks and resets to 1
+                new_streak = 1
+                
+    # 5. Insert or update today's stats row
+    if today_stat_row:
+        res = supabase.table("user_stats").update({
+            "posts_count": posts_today,
+            "streak_count": new_streak
+        }).eq("id", today_stat_row["id"]).execute()
+    else:
+        res = supabase.table("user_stats").insert({
+            "user_id": user_id,
+            "stat_date": today_str,
+            "posts_count": posts_today,
+            "is_break": False,
+            "streak_count": new_streak
+        }).execute()
+        
+    return res.data[0] if res.data else {}
 
 def check_idea_scheduled_for_date(supabase, user_id: str, scheduled_date: str) -> Optional[dict]:
     """Checks if there is already an idea planned for the selected date."""

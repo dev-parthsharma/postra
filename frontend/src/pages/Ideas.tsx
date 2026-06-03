@@ -14,7 +14,18 @@ import {
   saveUserIdeaWithDate,
   generatePostForExistingIdea,
   confirmIdea,
+  scheduleIdea,
 } from "../lib/ideasApi";
+
+// Date tomorrow
+const getTomorrowStr = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 1); // Aaj ki date + 1 day
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`; // Returns e.g., "2026-06-03"
+};
 
 // ── Spinner Helper ────────────────────────────────────────────────────────────
 function Spinner({ small = false, size = 16 }: { small?: boolean; size?: number }) {
@@ -100,6 +111,15 @@ function CreateIdeaModal({ onClose, onSaved }: CreateIdeaModalProps) {
 
   const handleSaveInitiate = async () => {
     if (!ideaText.trim()) return;
+
+    // 🟢 Past date bypass protection check
+    const tomorrow = getTomorrowStr();
+    if (scheduledDate && scheduledDate < tomorrow) {
+      setErrorMsg("Scheduled date must be tomorrow or further!");
+      setTimeout(() => setErrorMsg(null), 5000); // 5 seconds error popup
+      return;
+    }
+
     setIsValidating(true);
     setErrorMsg(null);
 
@@ -191,6 +211,13 @@ function CreateIdeaModal({ onClose, onSaved }: CreateIdeaModalProps) {
             <input 
               type="date" 
               value={scheduledDate}
+              min={getTomorrowStr()}
+              onKeyDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                try {
+                  e.currentTarget.showPicker();
+                } catch (err) {}
+              }}
               onChange={(e) => setScheduledDate(e.target.value)}
               className="w-full bg-slate-50 dark:bg-zinc-800/80 border border-slate-200 dark:border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-slate-700 dark:text-zinc-200 outline-none focus:border-indigo-500 transition-all"
             />
@@ -426,27 +453,31 @@ function CustomIdeaCard({
   idea,
   onOpenDetails,
   onDelete,
+  onScheduleIdea,
 }: {
   idea: any;
   onOpenDetails: (idea: any) => void;
   onDelete: (id: string) => void;
+  onScheduleIdea: (id: string, date: string) => Promise<void>;
 }) {
   const formattedDate = idea.scheduled_date
     ? new Date(idea.scheduled_date).toLocaleDateString("en-IN", { day: "numeric", month: "short" })
     : null;
 
   return (
+    /* 🟢 FIXED: Added theme-responsive bg, border, and hover classes */
     <div 
       onClick={() => onOpenDetails(idea)} 
-      className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-2xl p-5 hover:shadow-md transition-all group flex flex-col justify-between h-full space-y-4 cursor-pointer"
+      className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 rounded-2xl p-5 hover:shadow-md transition-all group flex flex-col justify-between h-full space-y-4 cursor-pointer shadow-sm"
     >
       <div className="space-y-3 flex-1">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2 flex-wrap">
+            {/* 🟢 FIXED: Theme-responsive source badge styling */}
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider ${
               idea.source === "postra" 
-                ? "text-orange-5050/10 border-orange-500/20"
-                : "text-zinc-500 bg-zinc-800 border-zinc-850"
+                ? "text-orange-600 bg-orange-50 border-orange-200 dark:text-orange-400 dark:bg-orange-500/10 dark:border-orange-500/20"
+                : "text-slate-500 bg-slate-50 border-slate-200 dark:text-zinc-500 dark:bg-zinc-800 dark:border-zinc-850"
             }`}>
               {idea.source === "postra" ? "✨ AI Idea" : "✍️ Custom"}
             </span>
@@ -466,23 +497,43 @@ function CustomIdeaCard({
           </button>
         </div>
 
-        <p className="text-zinc-100 text-sm font-semibold leading-relaxed line-clamp-3">
+        {/* 🟢 FIXED: Changed text-zinc-100 to theme-responsive text-slate-800 dark:text-zinc-100 */}
+        <p className="text-slate-800 dark:text-zinc-100 text-sm font-semibold leading-relaxed line-clamp-3">
           {idea.idea}
         </p>
       </div>
 
-      <div className="flex items-center justify-between pt-3 border-t border-zinc-800">
+      {/* 🟢 FIXED: Border-t color changed to border-slate-100 dark:border-zinc-800 */}
+      <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-zinc-800">
         <div>
-          {formattedDate ? (
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded-full">
-              <span>📅</span> {formattedDate}
-            </div>
-          ) : (
-            <span className="text-[11px] font-medium text-slate-400 dark:text-zinc-500 italic">Unscheduled</span>
-          )}
+          {/* direct input layout jo update aur schedule dono seamlessly allow karta hai */}
+          <div 
+            onClick={(e) => e.stopPropagation()} // Card popup trigger ko rokne ke liye
+            className="flex items-center gap-1.5"
+          >
+            {/* 🟢 FIXED: Input element bg, border, and text colors are now fully theme-responsive */}
+            <input 
+              type="date"
+              value={idea.scheduled_date || ""} // Direct database value map ho rahi hai
+              min={getTomorrowStr()}
+              onKeyDown={(e) => e.preventDefault()} // Typing block
+              onClick={(e) => {
+                try {
+                  e.currentTarget.showPicker(); // Tap karte hi calendar open
+                } catch (err) {}
+              }}
+              onChange={async (e) => {
+                const selectedDate = e.target.value;
+                // Agar date select ki hai toh save karega, agar calendar se clear ki hai toh blank/null karega
+                await onScheduleIdea(idea.id, selectedDate || "");
+              }}
+              className="bg-slate-50 dark:bg-zinc-800 border border-slate-250 dark:border-zinc-700 rounded-xl px-2.5 py-1 text-[11px] text-slate-700 dark:text-zinc-300 outline-none focus:border-indigo-500 transition-all cursor-pointer"
+            />
+          </div>
         </div>
 
-        <span className="text-indigo-400 text-xs font-bold flex items-center gap-1 group-hover:translate-x-1 transition-transform">
+        {/* 🟢 FIXED: Changed text-indigo-400 to text-indigo-600 dark:text-indigo-400 */}
+        <span className="text-indigo-600 dark:text-indigo-400 text-xs font-bold flex items-center gap-1 group-hover:translate-x-1 transition-transform">
           Details →
         </span>
       </div>
@@ -503,6 +554,12 @@ export default function IdeasPage() {
 
   // Safety Delete States
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+
+  // ── New In-App Conflict States ──
+  const [showScheduleConflict, setShowScheduleConflict] = useState(false);
+  const [conflictTargetId, setConflictTargetId] = useState<string | null>(null);
+  const [conflictTargetDate, setConflictTargetDate] = useState<string | null>(null);
+  const [conflictingIdeaText, setConflictingIdeaText] = useState("");
 
   const fetchIdeas = useCallback(async () => {
     try {
@@ -537,6 +594,37 @@ export default function IdeasPage() {
     } catch (e: any) {
       setIdeas(previousIdeas);
       alert("Failed to delete idea from database: " + e.message);
+    }
+  };
+
+  const handleScheduleIdea = async (id: string, date: string) => {
+    try {
+      if (!date) {
+        await executeScheduleSave(id, null);
+        return;
+      }
+
+      const conflict = await checkDateSchedule(date);
+      if (conflict.scheduled && conflict.existing_idea?.id !== id) {
+        setConflictingIdeaText(conflict.existing_idea?.idea || "");
+        setConflictTargetId(id);
+        setConflictTargetDate(date);
+        setShowScheduleConflict(true);
+        return;
+      }
+
+      await executeScheduleSave(id, date);
+    } catch (e: any) {
+      alert("Failed to schedule idea: " + e.message);
+    }
+  };
+
+  const executeScheduleSave = async (id: string, date: string | null) => {
+    try {
+      await scheduleIdea(id, date);
+      fetchIdeas(); // Reload grid lists
+    } catch (e: any) {
+      alert("Failed to save schedule: " + e.message);
     }
   };
 
@@ -596,6 +684,7 @@ export default function IdeasPage() {
               idea={idea}
               onOpenDetails={(item) => setSelectedIdeaDetail(item)} 
               onDelete={handleDeleteTrigger}
+              onScheduleIdea={handleScheduleIdea}
             />
           ))}
         </div>
@@ -653,6 +742,53 @@ export default function IdeasPage() {
           </div>
         </div>
       )}
+
+      {/* ── 🟢 IN-APP DATE CONFLICT CONFIRMATION OVERLAY ── */}
+        {showScheduleConflict && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+            <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl w-full max-w-sm p-6 text-center space-y-4 shadow-xl animate-in zoom-in-95 duration-200">
+              <div className="w-12 h-12 bg-orange-50 dark:bg-orange-500/10 text-orange-500 dark:text-orange-400 rounded-full flex items-center justify-center mx-auto text-xl animate-pulse">
+                📅
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">Date Already Booked</h3>
+                <p className="text-xs text-slate-500 dark:text-zinc-400 leading-relaxed">
+                  Another idea is already planned for this day:
+                </p>
+                <p className="text-xs font-semibold text-slate-700 dark:text-zinc-200 bg-slate-50 dark:bg-zinc-800 p-2.5 rounded-xl border border-slate-150 dark:border-zinc-850 truncate italic">
+                  "{conflictingIdeaText}"
+                </p>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowScheduleConflict(false);
+                    setConflictTargetId(null);
+                    setConflictTargetDate(null);
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 font-semibold text-xs transition-all active:scale-95"
+                >
+                  Select Another Date
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setShowScheduleConflict(false);
+                    if (conflictTargetId && conflictTargetDate) {
+                      await executeScheduleSave(conflictTargetId, conflictTargetDate);
+                    }
+                    setConflictTargetId(null);
+                    setConflictTargetDate(null);
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold text-xs shadow-md shadow-indigo-500/20 active:scale-95 transition-all"
+                >
+                  Confirm Anyway
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
     </div>
   );

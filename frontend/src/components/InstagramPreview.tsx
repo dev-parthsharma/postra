@@ -8,7 +8,7 @@ import { Spinner } from "../components/Spinner";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import { API_BASE } from "../lib/apiBase"; 
-import { editScriptWithAI, unlockScriptApi } from "../lib/postApi"; // 🟢 AI script edit import kiya
+import { editScriptWithAI, unlockScriptApi, generateSingleField } from "../lib/postApi"; // 🟢 Added generateSingleField
 
 interface PostData {
   id: string;
@@ -48,7 +48,7 @@ const renderMarkdownToHtml = (text: string): string => {
     .replace(/$/, "</p>");
 };
 
-// ─── INLINE EDITABLE FIELD COMPONENT (V2.1: CLICKABLE BOX + SMART AUTO-REWRITE PROMPT) ───
+// ─── INLINE EDITABLE FIELD COMPONENT ───
 function EditableField({
   value,
   onSave,
@@ -74,8 +74,9 @@ function EditableField({
   const [aiPrompt, setAiPrompt] = useState("");
   const [isAiLoading, setIsAiLoading] = useState(false);
 
-  // Safety Confirmation Overlay
+  // Safety Confirmation Overlays
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showDiscardWarning, setShowDiscardWarning] = useState(false); // 🟢 Added
 
   useEffect(() => {
     setDraft(value || "");
@@ -85,7 +86,6 @@ function EditableField({
     if (!chatId) return;
     setIsAiLoading(true);
     try {
-      // 🟢 FIX: Prompt ko active aur creative banaya taaki Groq backend fallback ko strictly modify aur polish kare
       const promptToUse = aiPrompt.trim() 
         ? aiPrompt.trim() 
         : `Rewrite this text to make it extremely catchy, punchy, and highly engaging for an Instagram Reel. Use better vocabulary, stronger phrasing, and active voice. Keep it concise.`;
@@ -93,10 +93,35 @@ function EditableField({
       const res = await editScriptWithAI(chatId, draft, promptToUse);
       if (res?.updated_script) {
         setDraft(res.updated_script);
-        setAiPrompt(""); // Clear prompt box on success
+        setAiPrompt(""); 
       }
     } catch (err) {
       alert("AI refinement failed. Please try again.");
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  // 🟢 NEW: Generates empty field content directly using backend single field generator
+  const handleAiGenerate = async () => {
+    if (!chatId) return;
+    setIsAiLoading(true);
+    try {
+      const fieldNameMap: Record<string, string> = {
+        "Hook": "hook",
+        "Script": "script",
+        "Caption": "caption",
+        "Shooting Guide": "shooting_guide",
+        "Editing Guide": "editing_guide",
+      };
+      const fieldName = fieldNameMap[label] || label.toLowerCase();
+      
+      const res = await generateSingleField(chatId, fieldName);
+      if (res?.generated_text) {
+        setDraft(res.generated_text);
+      }
+    } catch (err) {
+      alert("AI generation failed. Please try again.");
     } finally {
       setIsAiLoading(false);
     }
@@ -108,9 +133,21 @@ function EditableField({
     setEditing(true);
   };
 
+  // 🟢 Safety Cancel check: Trigger warning if draft has unsaved text edits
+  const handleRequestClose = () => {
+    const hasUnsavedChanges = draft.trim() !== (value || "").trim();
+    if (hasUnsavedChanges) {
+      setShowDiscardWarning(true);
+    } else {
+      setEditing(false);
+    }
+  };
+
+  const isFieldEmpty = !value || value.trim() === "";
+
   return (
-    <div className="group relative">
-      {/* 🟢 Clickable View Area: Hover aur Click karne par edit modal trigger hoga */}
+    <div className="relative">
+      {/* Clickable View Area */}
       <div 
         onClick={openEditorModal}
         className={`text-slate-700 dark:text-zinc-300 text-sm sm:text-[15px] leading-relaxed p-4 rounded-2xl border border-dashed border-transparent hover:border-slate-200 dark:hover:border-zinc-800 hover:bg-slate-50/50 dark:hover:bg-zinc-900/10 transition-all duration-200 ${
@@ -119,7 +156,7 @@ function EditableField({
       >
         {value ? (
           <div
-            className="prose prose-sm dark:prose-invert max-w-none pointer-events-none" // pointer-events-none selection block se bachata hai
+            className="prose prose-sm dark:prose-invert max-w-none pointer-events-none" 
             dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(value) }}
           />
         ) : (
@@ -138,7 +175,8 @@ function EditableField({
                 <span>📝</span> Edit {label}
               </h3>
               <button 
-                onClick={() => setEditing(false)}
+                onClick={handleRequestClose}
+                disabled={isAiLoading || saving}
                 className="p-1.5 rounded-xl hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-500 transition-colors"
               >
                 ✖
@@ -170,35 +208,58 @@ function EditableField({
                 <div className="flex-1 flex flex-col justify-between space-y-4">
                   <div className="space-y-3">
                     <p className="text-xs text-slate-500 dark:text-zinc-400 leading-normal">
-                      Write some instructions below to let Postra refine your draft (e.g. *'make it funnier'*, *'add bold hooks'*, *'include emojis'*).
+                      {isFieldEmpty 
+                        ? `This section is empty. Let Postra's advanced strategist automatically craft a high-convetion ${label} for you!`
+                        : `Write some instructions below to let Postra refine your draft (e.g. 'make it funnier', 'add bold hooks').`
+                      }
                     </p>
-                    <textarea
-                      value={aiPrompt}
-                      onChange={(e) => setAiPrompt(e.target.value)}
-                      placeholder="e.g. rewrite this using casual hindi words..."
-                      className="w-full h-24 resize-none bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl p-3.5 text-xs outline-none focus:border-indigo-500 transition-all dark:text-white"
-                      disabled={isAiLoading}
-                    />
+                    
+                    {/* Hide prompt box if field is completely empty to keep UI minimal */}
+                    {!isFieldEmpty && (
+                      <textarea
+                        value={aiPrompt}
+                        onChange={(e) => setAiPrompt(e.target.value)}
+                        placeholder="e.g. rewrite this using casual hindi words..."
+                        className="w-full h-24 resize-none bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl p-3.5 text-xs outline-none focus:border-indigo-500 transition-all dark:text-white"
+                        disabled={isAiLoading}
+                      />
+                    )}
+                    
                     <p className="text-[10px] text-slate-400 dark:text-zinc-500 italic">
-                      💡 Tip: Leave the box blank to let AI automatically improve flow and engagement!
+                      {isFieldEmpty 
+                        ? `⚡ Generated text will automatically populate the manual editor column.`
+                        : `💡 Tip: Leave the box blank to let AI automatically improve flow and engagement!`
+                      }
                     </p>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={handleAiRefine}
-                    disabled={isAiLoading}
-                    className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md shadow-indigo-500/10 active:scale-95 transition-all flex items-center justify-center gap-1.5"
-                  >
-                    {isAiLoading ? <Spinner size={14} /> : "🪄 Improve with AI"}
-                  </button>
+                  {/* 🟢 Dynamic Action Trigger: Generate vs Improve */}
+                  {isFieldEmpty ? (
+                    <button
+                      type="button"
+                      onClick={handleAiGenerate}
+                      disabled={isAiLoading}
+                      className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-5050 text-white font-bold text-xs shadow-md shadow-indigo-500/10 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                    >
+                      {isAiLoading ? <Spinner size={14} /> : "✨ Generate with AI"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleAiRefine}
+                      disabled={isAiLoading}
+                      className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md shadow-indigo-500/10 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                    >
+                      {isAiLoading ? <Spinner size={14} /> : "🪄 Improve with AI"}
+                    </button>
+                  )}
                 </div>
 
                 {/* AI loading spinner overlay */}
                 {isAiLoading && (
                   <div className="absolute inset-0 bg-white/50 dark:bg-zinc-900/50 backdrop-blur-[1px] rounded-2xl flex flex-col items-center justify-center">
                     <Spinner size={24} />
-                    <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 mt-2">AI is editing your text...</span>
+                    <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 mt-2">AI editing in progress...</span>
                   </div>
                 )}
               </div>
@@ -208,13 +269,15 @@ function EditableField({
             {/* Modal Footer */}
             <div className="px-6 py-4 bg-slate-50 dark:bg-zinc-850/50 border-t border-slate-150 dark:border-zinc-800 flex justify-end gap-3">
               <button
-                onClick={() => setEditing(false)}
+                onClick={handleRequestClose}
+                disabled={isAiLoading || saving}
                 className="px-5 py-2.5 rounded-xl text-xs font-medium text-slate-600 dark:text-zinc-400 hover:bg-slate-200 dark:hover:bg-zinc-800 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={() => setShowConfirmModal(true)} 
+                disabled={isAiLoading || saving}
                 className="px-6 py-2.5 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-500/15 transition-all"
               >
                 Confirm Changes
@@ -261,6 +324,42 @@ function EditableField({
                     className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold text-xs shadow-md shadow-indigo-500/20 active:scale-95 transition-all"
                   >
                     Yes, Save
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── 🟢 NESTED UNSAVED DISCARD WARNING OVERLAY ── */}
+          {showDiscardWarning && (
+            <div className="fixed inset-0 z-[130] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl w-full max-w-sm p-6 text-center space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
+                <div className="w-12 h-12 bg-red-50 dark:bg-red-500/10 text-red-500 dark:text-red-400 rounded-full flex items-center justify-center mx-auto text-xl">
+                  ⚠️
+                </div>
+                <div className="space-y-1.5">
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">Discard Unsaved Changes?</h3>
+                  <p className="text-xs text-slate-500 dark:text-zinc-400 leading-relaxed">
+                    You have unsaved edits in your manual text area or AI refinements. Closing now will <span className="font-bold text-red-500">discard all changes permanently</span> [4].
+                  </p>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowDiscardWarning(false)}
+                    className="flex-1 py-2.5 rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 font-semibold text-xs"
+                  >
+                    Keep Editing
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDiscardWarning(false);
+                      setEditing(false); // Discard and close
+                    }}
+                    className="flex-1 py-2.5 rounded-xl bg-red-600 text-white font-semibold text-xs shadow-md shadow-red-500/20 active:scale-95 transition-all"
+                  >
+                    Discard Edits
                   </button>
                 </div>
               </div>
@@ -350,7 +449,7 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
   const videoInputRef = useRef<HTMLInputElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
 
-  // 🟢 BYPASSED: Always treat as premium for testing
+  // Always treat as premium for testing
   const isPremium = true;
   const isPublished = post?.status === "published";
 
@@ -362,7 +461,6 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       try {
-        // 🟢 V2: Query by direct posts.id instead of chat_id
         const { data: postData, error: postErr } = await supabase
           .from("posts")
           .select("*")
@@ -373,7 +471,6 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
         let finalPost: PostData = { ...postData };
         if (postData.cover_image) finalPost.cover_image = postData.cover_image;
 
-        // 🟢 V2: Set title from post hook directly (removed obsolete chats query)
         finalPost.title = postData.hook;
 
         try {
@@ -985,21 +1082,17 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
                 The Hook
               </h3>
             </div>
-            {post?.hook ? (
-              <div className="text-slate-800 dark:text-zinc-200 text-sm sm:text-[15px] leading-relaxed font-semibold">
-                <EditableField
-                  value={post.hook}
-                  onSave={(v) => updatePostField("hook", v)}
-                  label="Hook"
-                  color="indigo"
-                  multiline={false}
-                  disabled={isPublished}
-                  chatId={chatId} // 🟢 Passed chatId to let editing overlay work
-                />
-              </div>
-            ) : (
-              <p className="text-slate-400 italic text-sm">No hook selected yet.</p>
-            )}
+            <div className="text-slate-800 dark:text-zinc-200 text-sm sm:text-[15px] leading-relaxed font-semibold">
+              <EditableField
+                value={post?.hook || null}
+                onSave={(v) => updatePostField("hook", v)}
+                label="Hook"
+                color="indigo"
+                multiline={false}
+                disabled={isPublished}
+                chatId={chatId}
+              />
+            </div>
           </section>
 
           <section className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-4 sm:p-6 rounded-2xl shadow-sm print:shadow-none print:border-none print:p-0">
@@ -1311,7 +1404,6 @@ export default function InstagramPreview({ chatId, plan }: InstagramPreviewProps
           </div>
         )}
 
-        {/* 🟢 BYPASSED: Shooting guide display restriction removed for testing */}
         {post?.shooting_guide && true && (
           <div className="mb-8">
             <h2 className="text-xs font-bold text-blue-500 uppercase tracking-widest mb-3">Shooting Guide 🎥</h2>

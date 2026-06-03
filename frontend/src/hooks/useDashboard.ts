@@ -1,27 +1,17 @@
 // frontend/src/hooks/useDashboard.ts
+// Cleaned V2 Dashboard hook: Decoupled from chats table & favorites. Queries direct planned date idea for today.
+
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "./useAuth";
 
 export interface DraftPost {
   id: string;
-  chat_id?: string | null;
   idea: string;
   status: "draft" | "idea" | "scheduled" | "published";
   updated_at: string;
   hook: string | null;
   script: string | null;
-}
-
-export interface ScheduledPost {
-  id: string;
-  post_id: string;
-  scheduled_at: string;
-  status: string;
-  post: {
-    idea: string;
-    hook: string | null;
-  } | null;
 }
 
 export interface CalendarPost {
@@ -34,14 +24,13 @@ export interface CalendarPost {
 export interface SavedIdea {
   id: string;
   idea: string;
-  is_favourite: boolean;
-  chat_id: string | null;  
 }
 
 export type TodayCTA =
+  | { type: "scheduled_idea"; idea: SavedIdea } // Planned idea of today
   | { type: "draft"; draft: DraftPost }
   | { type: "idea"; idea: SavedIdea }
-  | { type: "none" };
+  | { type: "mindset" }; // Comfort Mindset Vibe check
 
 export interface DashboardData {
   userName: string;
@@ -49,6 +38,7 @@ export interface DashboardData {
   ideasSaved: number;
   scheduledThisWeek: number;
   postStreak: number;        
+  streakFrequency: string | null; // Added
   calendarPosts: CalendarPost[];
   todayCTA: TodayCTA;
 }
@@ -80,19 +70,26 @@ export function useDashboard() {
         const calendarStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
         const calendarEnd   = new Date(now.getFullYear(), now.getMonth() + 2, 0).toISOString();
 
-        const[
+        // Calculate Today's Local Date safely to match database DATE format
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, "0");
+        const dd = String(now.getDate()).padStart(2, "0");
+        const todayStr = `${yyyy}-${mm}-${dd}`;
+
+        const [
           profileRes,
           postsMonthRes,
           ideasRes,
           scheduledWeekRes,
-          userStatsRes, // 🟢 NAYA STREAK QUERY RESULT
+          userStatsRes,
           scheduledCalRes,
           publishedCalRes,
           oldestDraftRes,
           savedIdeasRes,
+          todayScheduledIdeaRes, 
         ] = await Promise.all([
-          // 1. Profile
-          supabase.from("user_profile").select("name").eq("id", user!.id).single(),
+          // 1. Profile (🟢 FIXED: Removed non-existent 'last_posted_date' column from select)
+          supabase.from("user_profile").select("name, streak_frequency").eq("id", user!.id).single(),
           // 2. Posts this month
           supabase.from("posts").select("id", { count: "exact", head: true }).eq("user_id", user!.id).gte("created_at", startOfMonth),
           // 3. Ideas saved
@@ -100,14 +97,18 @@ export function useDashboard() {
           // 4. Scheduled this week
           supabase.from("schedules").select("id, posts!inner ( user_id )", { count: "exact", head: true }).eq("posts.user_id", user!.id).eq("status", "scheduled").gte("scheduled_at", startOfWeek.toISOString()).lte("scheduled_at", endOfWeek.toISOString()),
           
-          // 5. 🟢 REAL-TIME STREAK FETCH (Database se)
-          supabase.from("user_stats").select("streak_count").eq("user_id", user!.id).order("stat_date", { ascending: false }).limit(1),
+          // 5. Real-Time Streak Fetch
+          supabase.from("user_stats").select("streak_count, stat_date").eq("user_id", user!.id).order("stat_date", { ascending: false }).limit(1),
           
           // 6. Calendar & Drafts
-          supabase.from("schedules").select(`id, scheduled_at, status, posts!inner ( id, user_id, ideas ( idea ) )`).eq("posts.user_id", user!.id).in("status",["scheduled"]).gte("scheduled_at", calendarStart).lte("scheduled_at", calendarEnd).order("scheduled_at", { ascending: true }),
+          supabase.from("schedules").select(`id, scheduled_at, status, posts!inner ( id, user_id, ideas ( idea ) )`).eq("posts.user_id", user!.id).in("status", ["scheduled"]).gte("scheduled_at", calendarStart).lte("scheduled_at", calendarEnd).order("scheduled_at", { ascending: true }),
           supabase.from("posts").select("id, created_at, ideas ( idea )").eq("user_id", user!.id).eq("status", "published").gte("created_at", calendarStart).lte("created_at", calendarEnd).order("created_at", { ascending: true }),
-          supabase.from("posts").select("id, hook, script, status, updated_at, chat_id, ideas ( idea )").eq("user_id", user!.id).in("status",["draft", "idea"]).order("created_at", { ascending: true }).limit(1),
-          supabase.from("ideas").select("id, idea, is_favourite, chats(id)").eq("user_id", user!.id).or("is_favourite.eq.true,source.eq.user").order("is_favourite", { ascending: false }).limit(1),
+          supabase.from("posts").select("id, hook, script, status, updated_at, ideas ( idea )").eq("user_id", user!.id).in("status", ["draft", "ready"]).order("created_at", { ascending: true }).limit(1),
+          
+          supabase.from("ideas").select("id, idea").eq("user_id", user!.id).order("created_at", { ascending: false }).limit(1),
+          
+          // 7. V2: Today's idea select query updated to fetch direct child post.id from posts table
+          supabase.from("ideas").select("id, idea, posts(id)").eq("user_id", user!.id).eq("scheduled_date", todayStr).maybeSingle(),
         ]);
 
         const userName = profileRes.data?.name || user!.email?.split("@")[0] || "Creator";
@@ -115,8 +116,36 @@ export function useDashboard() {
         const ideasSaved = ideasRes.count ?? 0;
         const scheduledThisWeek = scheduledWeekRes.count ?? 0;
 
-        // 🟢 ASSIGNING THE NEW STREAK
-        const postStreak = userStatsRes.data?.[0]?.streak_count || 0;
+        // 🟢 FIXED: Type casted 'profileRes.data' to 'any' to bypass missing property check
+        const profileData: any = profileRes.data;
+        const streakFrequency = profileData?.streak_frequency || null;
+
+        // 🟢 FIXED: Type casted 'userStatsRes.data' row to 'any' to bypass missing stat_date check
+        const latestStatsRow: any = userStatsRes.data?.[0];
+        const lastPosted = latestStatsRow?.stat_date;
+        let postStreak = latestStatsRow?.streak_count || 0;
+
+        // REAL-TIME STREAK BREAK gap check
+        if (streakFrequency && lastPosted) {
+          const limits: Record<string, number> = {
+            "2_day": 1,
+            "1_day": 1,
+            "1_2days": 2,
+            "1_3days": 3,
+            "1_5days": 5,
+            "1_week": 7
+          };
+          const maxGap = limits[streakFrequency] || 1;
+          const todayDate = new Date(todayStr).getTime();
+          const lastPostedDate = new Date(lastPosted).getTime();
+          const gapDays = Math.floor((todayDate - lastPostedDate) / (1000 * 60 * 60 * 24));
+          
+          if (gapDays > maxGap) {
+            postStreak = 0; // Streak broken in real-time
+          }
+        } else {
+          postStreak = 0; // No active streak configured yet
+        }
 
         const calendarPosts: CalendarPost[] = [
           ...(scheduledCalRes.data ?? []).map((s: any) => {
@@ -128,7 +157,7 @@ export function useDashboard() {
               status: "scheduled" as const,
             };
           }),
-          ...(publishedCalRes.data ??[]).map((p: any) => {
+          ...(publishedCalRes.data ?? []).map((p: any) => {
             const ideaText = Array.isArray(p.ideas) ? p.ideas[0]?.idea : p.ideas?.idea;
             return {
               id: p.id,
@@ -139,40 +168,58 @@ export function useDashboard() {
           }),
         ].sort((a, b) => (a.scheduled_at > b.scheduled_at ? 1 : -1));
 
-        let todayCTA: TodayCTA = { type: "none" };
-        const oldestDraft: any = oldestDraftRes.data?.[0];
-        
-        if (oldestDraft) {
-          const ideaText = Array.isArray(oldestDraft.ideas) ? oldestDraft.ideas[0]?.idea : oldestDraft.ideas?.idea;
+        let todayCTA: TodayCTA = { type: "mindset" }; 
+        const todayScheduledIdea: any = todayScheduledIdeaRes.data;
+
+        // Check if today's scheduled idea has a post generated
+        const todayPosts = todayScheduledIdea?.posts;
+        const todayIdeaHasPost = Array.isArray(todayPosts) ? todayPosts.length > 0 : !!todayPosts;
+
+        // ── PRIORITY-BASED DECISION LOGIC ──
+        if (todayScheduledIdea && !todayIdeaHasPost) {
+          // 🚀 PRIORITY 1: Today's Planned Idea (Only if no post has been generated yet!)
           todayCTA = {
-            type: "draft",
-            draft: {
-              id: oldestDraft.id,
-              chat_id: oldestDraft.chat_id ?? null,
-              idea: ideaText || "Draft post",
-              hook: oldestDraft.hook,
-              script: oldestDraft.script,
-              status: oldestDraft.status,
-              updated_at: oldestDraft.updated_at,
-            },
+            type: "scheduled_idea",
+            idea: {
+              id: todayScheduledIdea.id,
+              idea: todayScheduledIdea.idea,
+            }
           };
         } else {
-          const savedIdea: any = savedIdeasRes.data?.[0];
-          if (savedIdea) {
-            const chatEntry = Array.isArray(savedIdea.chats) ? savedIdea.chats[0] : savedIdea.chats;
+          const hadScheduledIdeaToday = !!todayScheduledIdea;
+          
+          if (hadScheduledIdeaToday && todayIdeaHasPost) {
+            // Reward State: Aaj ka scheduled task poora hua -> Show randomized Comfort/Mindset Card!
+            todayCTA = { type: "mindset" };
+          } else if (oldestDraftRes.data?.[0]) {
+            // 📝 PRIORITY 2: Unfinished Draft Post from backlog (If no active today tasks)
+            const oldestDraft: any = oldestDraftRes.data[0];
+            const ideaText = Array.isArray(oldestDraft.ideas) ? oldestDraft.ideas[0]?.idea : oldestDraft.ideas?.idea;
+            todayCTA = {
+              type: "draft",
+              draft: {
+                id: oldestDraft.id,
+                idea: ideaText || "Draft post",
+                hook: oldestDraft.hook,
+                script: oldestDraft.script,
+                status: oldestDraft.status,
+                updated_at: oldestDraft.updated_at,
+              },
+            };
+          } else if (savedIdeasRes.data?.[0]) {
+            // 💡 PRIORITY 3: Unscheduled Saved Idea
+            const savedIdea: any = savedIdeasRes.data[0];
             todayCTA = {
               type: "idea",
               idea: {
                 id: savedIdea.id,
                 idea: savedIdea.idea,
-                is_favourite: savedIdea.is_favourite,
-                chat_id: chatEntry?.id ?? null,   
               },
             };
           }
         }
 
-        setData({ userName, postsThisMonth, ideasSaved, scheduledThisWeek, postStreak, calendarPosts, todayCTA });
+        setData({ userName, postsThisMonth, ideasSaved, scheduledThisWeek, postStreak, streakFrequency, calendarPosts, todayCTA });
       } catch (err: any) {
         setError(err.message ?? "Failed to load dashboard");
       } finally {
