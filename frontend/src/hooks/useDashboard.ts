@@ -14,6 +14,18 @@ export interface DraftPost {
   script: string | null;
 }
 
+// 🟢 FIXED: Re-added the missing ScheduledPost interface for ScheduledPosts.tsx imports compatibility
+export interface ScheduledPost {
+  id: string;
+  post_id: string;
+  scheduled_at: string;
+  status: string;
+  post: {
+    idea: string;
+    hook: string | null;
+  } | null;
+}
+
 export interface CalendarPost {
   id: string;
   title: string;          
@@ -107,7 +119,7 @@ export function useDashboard() {
           
           supabase.from("ideas").select("id, idea").eq("user_id", user!.id).order("created_at", { ascending: false }).limit(1),
           
-          // 7. V2: Today's idea select query updated to fetch direct child post.id from posts table
+          // 🟢 7. V2: Today's idea select query updated to fetch direct child post.id from posts table
           supabase.from("ideas").select("id, idea, posts(id)").eq("user_id", user!.id).eq("scheduled_date", todayStr).maybeSingle(),
         ]);
 
