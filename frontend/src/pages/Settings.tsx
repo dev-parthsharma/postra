@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useTheme } from "../context/ThemeContext";
 import DashboardLayout from "../components/layout/DashboardLayout";
+import { Spinner } from "../components/Spinner";
+import { API_BASE } from "../lib/apiBase";
 
 interface UserProfile {
   name: string;
@@ -196,6 +198,88 @@ export default function SettingsPage() {
   // ── New In-App Streak Change Confirmation States ──
   const [showStreakConfirm, setShowStreakConfirm] = useState(false);
   const [pendingStreakFreq, setPendingStreakFreq] = useState<string | null>(null);
+
+  // ── New Instagram Integration States ──
+  const [igUsername, setIgUsername] = useState<string | null>(null);
+  const [igLoading, setIgLoading] = useState(false);
+
+  // Load active connection on mount
+  useEffect(() => {
+    const fetchIGConnection = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      
+      const { data } = await supabase
+        .from("instagram_connections")
+        .select("instagram_username")
+        .eq("user_id", user.id)
+        .maybeSingle();
+        
+      if (data?.instagram_username) {
+        setIgUsername(data.instagram_username);
+      }
+    };
+    fetchIGConnection();
+  }, [userId]);
+
+  // 🟢 ManyChat-style 1-Click Business Login Handler
+  const handleInstagramConnect = () => {
+    if (!window.FB) {
+      alert("Facebook SDK is still loading. Please refresh and try again!");
+      return;
+    }
+
+    setIgLoading(true);
+
+    window.FB.login(async (response: any) => {
+      if (response.authResponse) {
+        const fbAccessToken = response.authResponse.accessToken;
+        
+        try {
+          // Send short-lived token to backend to exchange and save connection!
+          const { data: { session } } = await supabase.auth.getSession();
+          const res = await fetch(`${API_BASE}/api/integrations/instagram/connect`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${session?.access_token}`,
+            },
+            body: JSON.stringify({ fb_access_token: fbAccessToken }),
+          });
+          
+          const result = await res.json();
+          if (!res.ok) throw new Error(result.detail || "Connection failed");
+          
+          setIgUsername(result.username);
+          alert(`Successfully connected as @${result.username}! 🎉`);
+        } catch (err: any) {
+          alert("Connection Error: " + (err.message || err));
+        } finally {
+          setIgLoading(false);
+        }
+      } else {
+        alert("Connection cancelled or not fully authorized.");
+        setIgLoading(false);
+      }
+    }, {
+      // 🟢 This Configuration ID triggers the modern asset-based login popup!
+      config_id: import.meta.env.VITE_META_CONFIG_ID,
+    });
+  };
+
+  const handleDisconnectIG = async () => {
+    const confirmDisc = window.confirm("Are you sure you want to disconnect your Instagram account?");
+    if (!confirmDisc || !userId) return;
+    setIgLoading(true);
+    try {
+      await supabase.from("instagram_connections").delete().eq("user_id", userId);
+      setIgUsername(null);
+    } catch (err) {
+      alert("Failed to disconnect.");
+    } finally {
+      setIgLoading(false);
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -553,6 +637,45 @@ export default function SettingsPage() {
                         </div>
                       </button>
                     ))}
+                  </div>
+                </div>
+
+                <div className="bg-white dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 rounded-2xl p-6 shadow-sm">
+                  <h2 className="text-sm font-semibold text-slate-800 dark:text-zinc-100 mb-1">Integrations</h2>
+                  <p className="text-xs text-slate-400 dark:text-zinc-500 mb-5">Connect your social media accounts to enable direct 1-click publishing [4].</p>
+
+                  <div className="flex items-center justify-between p-4 border border-slate-150 dark:border-zinc-800 rounded-xl">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#f9abf2] to-[#b05ee1] flex items-center justify-center text-white text-lg">
+                        📸
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-slate-800 dark:text-zinc-100">Instagram Professional</p>
+                        <p className="text-xs text-slate-400 dark:text-zinc-500">
+                          {igUsername ? `Connected as @${igUsername} ✅` : "Not connected yet"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {igUsername ? (
+                      <button
+                        type="button"
+                        disabled={igLoading}
+                        onClick={handleDisconnectIG}
+                        className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all"
+                      >
+                        {igLoading ? "Disconnecting..." : "Disconnect"}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={igLoading}
+                        onClick={handleInstagramConnect}
+                        className="text-xs font-bold px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md shadow-indigo-500/10 active:scale-95 transition-all flex items-center gap-1.5"
+                      >
+                        {igLoading ? <Spinner /> : "Connect Instagram"}
+                      </button>
+                    )}
                   </div>
                 </div>
 

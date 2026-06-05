@@ -1,4 +1,6 @@
-// src/components/layout/Sidebar.tsx
+// frontend/src/components/layout/Sidebar.tsx
+// Refactored V2: Sidebar Layout featuring clean 1-click Facebook Login for Business assets integration.
+
 import { NavLink, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
@@ -34,7 +36,7 @@ const navItems: NavItem[] =[
     label: "Media",
     icon: (
       <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4-4m0 0l-4-4m4 4V4" />
       </svg>
     ),
   },
@@ -119,12 +121,6 @@ function InstagramStrip({ userId, plan, onRequireUpgrade }: { userId: string | u
   }, [userId]);
 
   const handleConnect = () => {
-    // 🟢 BYPASSED: Plan check removed for testing
-    // if (plan.toLowerCase() === "free") {
-    //   onRequireUpgrade();
-    //   return;
-    // }
-
     if (username) return; 
     
     if (!window.FB) {
@@ -134,6 +130,7 @@ function InstagramStrip({ userId, plan, onRequireUpgrade }: { userId: string | u
 
     setConnecting(true);
 
+    // 🟢 V2: Updated to modern Facebook Login for Business using config_id (ManyChat-style)
     window.FB.login(
       function (response: any) {
         if (response.authResponse) {
@@ -177,7 +174,8 @@ function InstagramStrip({ userId, plan, onRequireUpgrade }: { userId: string | u
         }
       },
       {
-        scope: "pages_show_list,pages_manage_posts,pages_read_engagement,business_management,instagram_basic,instagram_content_publish",
+        // 🟢 Config ID triggers direct Business Assets picker modal on click
+        config_id: import.meta.env.VITE_META_CONFIG_ID,
       }
     );
   };
@@ -204,7 +202,7 @@ function InstagramStrip({ userId, plan, onRequireUpgrade }: { userId: string | u
           }
         >
           <svg width="11" height="11" viewBox="0 0 24 24" fill={username ? "white" : "rgba(148,163,184,0.6)"}>
-            <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z" />
+            <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069z" />
           </svg>
         </span>
         {username ? (
@@ -236,7 +234,7 @@ function PlanStrip({ plan, onUpgrade }: { plan: string; onUpgrade: () => void })
         >
           {label.toUpperCase()}
         </span>
-        <span className="flex-1 text-xs text-slate-400 dark:text-slate-500 truncate">
+        <span className="flex-1 text-xs text-slate-400 dark:text-zinc-500 truncate">
           {isFree ? "Free plan" : `${label} plan`}
         </span>
         <button
@@ -296,7 +294,7 @@ function NavContent({ userId, plan, onMobileClose, onSignOut, onUpgrade, onRequi
           <NavLink key={item.to} to={item.to} className={linkClass} onClick={onMobileClose}>
             {({ isActive }) => (
               <>
-                <span className={`transition-colors ${isActive ? "text-indigo-600 dark:text-indigo-400" : "text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300"}`}>
+                <span className={`transition-colors ${isActive ? "text-indigo-600 dark:text-indigo-400" : "text-slate-400 dark:text-zinc-500 group-hover:text-slate-600 dark:group-hover:text-slate-300"}`}>
                   {item.icon}
                 </span>
                 <span>{item.label}</span>
@@ -351,7 +349,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const navigate = useNavigate();
   const [userId, setUserId] = useState<string | undefined>(undefined);
   const [plan, setPlan] = useState("free");
-  const[showUpgradeModal, setShowUpgradeModal] = useState(false); // 🟢 Premium App Popup State
+  const[showUpgradeModal, setShowUpgradeModal] = useState(false); 
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -363,7 +361,6 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
         .eq("id", user.id)
         .maybeSingle()
         .then(({ data }) => {
-          // 🟢 BYPASSED: Always set plan to "pro" for testing
           if (data?.plan) setPlan("pro");
         });
     });
@@ -388,7 +385,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           plan={plan}
           onSignOut={handleSignOut}
           onUpgrade={handleUpgrade}
-          onRequireUpgrade={() => setShowUpgradeModal(true)} // 🟢 Prop passed
+          onRequireUpgrade={() => setShowUpgradeModal(true)} 
         />
       </aside>
 
@@ -423,26 +420,26 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
                 onMobileClose={onMobileClose}
                 onSignOut={handleSignOut}
                 onUpgrade={handleUpgrade}
-                onRequireUpgrade={() => setShowUpgradeModal(true)} // 🟢 Prop passed
+                onRequireUpgrade={() => setShowUpgradeModal(true)} 
               />
             </div>
           </aside>
         </>
       )}
 
-      {/* 🟢 CUSTOM APP POPUP (Premium Required) */}
+      {/* CUSTOM APP POPUP (Premium Required) */}
       {showUpgradeModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-white dark:bg-[#1a1d27] w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden border border-slate-100 dark:border-white/[0.06] transform transition-all scale-in-center">
             <div className="p-6 text-center">
               <div className="mx-auto w-14 h-14 bg-gradient-to-tr from-indigo-500 to-fuchsia-500 rounded-full flex items-center justify-center mb-4 shadow-inner">
                 <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="white" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2-2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
               </div>
               <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Upgrade Required</h3>
               <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed mb-6">
-                Auto-publishing to Instagram is an exclusive feature for <strong className="text-slate-700 dark:text-slate-300">Starter</strong> and <strong className="text-slate-700 dark:text-slate-300">Pro</strong> plans. Put your content on auto-pilot today! 🚀
+                Auto-publishing to Instagram is an exclusive feature for <strong className="text-slate-700 dark:text-slate-300">Starter</strong> and <strong className="text-slate-700 dark:text-zinc-300">Pro</strong> plans. Put your content on auto-pilot today! 🚀
               </p>
               <div className="flex flex-col gap-2.5">
                 <button
