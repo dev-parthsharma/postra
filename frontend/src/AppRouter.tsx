@@ -68,11 +68,11 @@ function HomeWithOnboarding() {
       if (!user) return;
       supabase
         .from("user_profile")
-        .select("niche")
+        .select("niche, content_goal")
         .eq("id", user.id)
         .single()
         .then(({ data }) => {
-          if (!data || !data.niche) setShowOnboarding(true);
+          if (!data || !data.niche || !data.content_goal) setShowOnboarding(true);
         });
       return;
     }
@@ -82,12 +82,12 @@ function HomeWithOnboarding() {
     const checkProfile = async () => {
       const { data: profile } = await supabase
         .from("user_profile")
-        .select("id, niche, preferred_language, is_onboarded")
+        .select("id, niche, content_goal, preferred_language, is_onboarded")
         .eq("id", user.id)
         .single();
 
-      // Show onboarding if user has never completed it
-      if (!profile || !profile.niche) {
+      // Show onboarding if user has never fully completed it
+      if (!profile || !profile.niche || !profile.content_goal) {
         setShowOnboarding(true);
         return;
       }

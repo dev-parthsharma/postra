@@ -228,7 +228,7 @@ def increment_ideas_used_today(supabase, user_id: str) -> None:
 def get_user_profile(supabase, user_id: str) -> Optional[dict]:
     response = (
         supabase.table("user_profile")
-        .select("niche, tone, style, goal, preferred_language, plan")
+        .select("niche, tone, style, goal, content_goal, preferred_language, plan")
         .eq("id", user_id)
         .single()
         .execute()
@@ -237,7 +237,19 @@ def get_user_profile(supabase, user_id: str) -> Optional[dict]:
         return None
     data = response.data
     data["language"] = data.pop("preferred_language", "english") or "english"
-    return data
+    return 
+
+def update_content_goal(supabase, user_id: str, content_goal: str) -> dict:
+    """Updates only the content_goal field for a user."""
+    response = (
+        supabase.table("user_profile")
+        .update({"content_goal": content_goal, "updated_at": "now()"})
+        .eq("id", user_id)
+        .execute()
+    )
+    if not response.data:
+        raise RuntimeError("Failed to update content_goal")
+    return response.data[0]
 
 
 # ── Utility ───────────────────────────────────────────────────────────────────

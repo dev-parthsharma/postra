@@ -13,20 +13,26 @@ interface MediaItem {
   created_at: string;
 }
 
+const PLAN_LIMITS: Record<string, number> = {
+  free: 1 * 1024 * 1024 * 1024,      // 1 GB
+  starter: 10 * 1024 * 1024 * 1024,  // 10 GB
+  pro: 100 * 1024 * 1024 * 1024,     // 100 GB
+};
+
 export default function Media() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const[plan, setPlan] = useState<string | null>(null);
+  const [plan, setPlan] = useState<string | null>(null);
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const[uploading, setUploading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   // ── View, Selection & Delete States ────────────────────────────────────────
-  const[viewItem, setViewItem] = useState<MediaItem | null>(null);
-  const[isSelectionMode, setIsSelectionMode] = useState(false);
+  const [viewItem, setViewItem] = useState<MediaItem | null>(null);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [itemsToDelete, setItemsToDelete] = useState<MediaItem[] | null>(null);
 
@@ -57,7 +63,7 @@ export default function Media() {
         y: (CONTAINER_H - scaledH) / 2
       });
     }
-  },[imgDimensions, CONTAINER_W, CONTAINER_H, scaledW, scaledH]);
+  }, [imgDimensions, CONTAINER_W, CONTAINER_H, scaledW, scaledH]);
 
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTriggered = useRef(false);
@@ -73,29 +79,47 @@ export default function Media() {
         .eq("id", user.id)
         .single();
       
-      // 🟢 BYPASSED: Always set plan to "pro" for testing
-      const userPlan = profile?.plan?.toLowerCase() || "pro";
-      setPlan("pro");
+      const rawPlan = profile?.plan?.toLowerCase() || "free";
+      const userPlan = ["free", "starter", "pro"].includes(rawPlan) ? rawPlan : "free";
+      setPlan(userPlan);
 
-      // 🟢 BYPASSED: Media loading restriction removed for testing
-      // if (userPlan !== "free") {
-        const { data: media } = await supabase
-          .from("media")
-          .select("*")
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false });
+      const { data: media } = await supabase
+        .from("media")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
 
-        if (media) setMediaItems(media);
-      // }
+      if (media) setMediaItems(media);
       setLoading(false);
     };
 
     loadData();
   }, [user]);
 
+  // ── Storage Calculations ───────────────────────────────────────────────────
+  const totalUsedBytes = mediaItems.reduce((acc, item) => acc + (item.file_size || 0), 0);
+  const currentPlan = plan || "free";
+  const limitBytes = PLAN_LIMITS[currentPlan] || PLAN_LIMITS.free;
+  const usagePercent = Math.min((totalUsedBytes / limitBytes) * 100, 100);
+  const freeBytes = Math.max(limitBytes - totalUsedBytes, 0);
+
   // ── Upload Engine ──────────────────────────────────────────────────────────
   const executeUpload = async (fileToUpload: File) => {
     if (!user) return;
+
+    // Guardrail: Final check of storage availability immediately before executing upload
+    const currentUsed = mediaItems.reduce((acc, item) => acc + (item.file_size || 0), 0);
+    const limit = PLAN_LIMITS[plan || "free"] || PLAN_LIMITS.free;
+
+    if (currentUsed + fileToUpload.size > limit) {
+      alert(`Storage limit exceeded! Remaining space is ${formatBytes(limit - currentUsed)}, but this file requires ${formatBytes(fileToUpload.size)}.`);
+      setUploading(false);
+      setCropFile(null);
+      setCropImgUrl(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
     setUploading(true);
     try {
       const fileExt = fileToUpload.name.split(".").pop() || "jpg";
@@ -126,7 +150,7 @@ export default function Media() {
 
       if (dbError) throw dbError;
 
-      setMediaItems(prev =>[insertedData, ...prev]);
+      setMediaItems(prev => [insertedData, ...prev]);
     } catch (err) {
       console.error("Upload failed:", err);
       alert("Failed to upload file. Please try again.");
@@ -183,6 +207,16 @@ export default function Media() {
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
+
+    // Guardrail: Initial check to block the upload flow early if size exceeds available space
+    const currentUsed = mediaItems.reduce((acc, item) => acc + (item.file_size || 0), 0);
+    const limit = PLAN_LIMITS[plan || "free"] || PLAN_LIMITS.free;
+
+    if (currentUsed + file.size > limit) {
+      alert(`Storage limit exceeded! Remaining space is ${formatBytes(limit - currentUsed)}, but this file requires ${formatBytes(file.size)}.`);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
 
     if (file.type.startsWith("image/")) {
       setUploading(true); // Show loader while analyzing/compressing
@@ -367,11 +401,6 @@ export default function Media() {
   };
 
   const handleGenerateClick = () => {
-    // 🟢 BYPASSED: Generate content restriction removed for testing
-    // if (plan !== "pro") {
-    //   alert("Generating content from media is available on the Pro plan!");
-    //   return;
-    // }
     if (mediaItems.length === 0) {
       alert("Please upload some media first.");
       return;
@@ -381,7 +410,7 @@ export default function Media() {
 
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return "0 Bytes";
-    const k = 1024, dm = 2, sizes = ["Bytes", "KB", "MB", "GB"];
+    const k = 1024, dm = 2, sizes = ["Bytes", "KB", "MB", "GB", "TB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
   };
@@ -394,29 +423,6 @@ export default function Media() {
       </div>
     );
   }
-
-  // 🟢 BYPASSED: Free plan lock screen removed for testing
-  // if (plan === "free") {
-  //   return (
-  //     <div className="p-6 md:p-8 max-w-5xl mx-auto h-[calc(100vh-4rem)] flex flex-col items-center justify-center text-center">
-  //       <div className="w-16 h-16 bg-slate-100 dark:bg-zinc-800 rounded-full flex items-center justify-center mb-4">
-  //         <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="text-slate-400 dark:text-zinc-500">
-  //           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-  //         </svg>
-  //       </div>
-  //       <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Media Library Locked</h2>
-  //       <p className="text-slate-500 dark:text-zinc-400 text-sm max-w-md mb-6">
-  //         Upgrade to Starter or Pro to upload your images and videos, and generate AI content directly from them.
-  //       </p>
-  //       <button
-  //         onClick={() => navigate("/upgrade")}
-  //         className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold transition-all shadow-sm"
-  //       >
-  //         View Plans
-  //       </button>
-  //     </div>
-  //   );
-  // }
 
   return (
     <div className="p-6 md:p-8 max-w-6xl mx-auto space-y-6 relative">
@@ -460,19 +466,14 @@ export default function Media() {
             <div>
               <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Media Library</h1>
               <p className="text-sm text-slate-500 dark:text-zinc-400 mt-1">
-                Upload images to generate content ideas. {plan === "starter" && "(Upgrade to Pro)"}
+                Upload images to generate content ideas.
               </p>
             </div>
             
             <div className="flex items-center gap-3 w-full sm:w-auto">
               <button
                 onClick={handleGenerateClick}
-                className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-sm ${
-                  true
-                    ? "bg-indigo-600 hover:bg-indigo-700 text-white"
-                    : "bg-slate-100 text-slate-400 dark:bg-zinc-800 dark:text-zinc-500 cursor-not-allowed"
-                }`}
-                title={false ? "Pro Plan required" : ""}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-sm bg-indigo-600 hover:bg-indigo-700 text-white"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -504,6 +505,35 @@ export default function Media() {
             </div>
           </>
         )}
+      </div>
+
+      {/* ── Storage Usage Bar ── */}
+      <div className="bg-slate-50 dark:bg-zinc-900/40 border border-slate-200 dark:border-zinc-800/80 rounded-2xl p-5 space-y-3 shadow-sm">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="text-slate-500 dark:text-zinc-400">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+            </svg>
+            <span className="text-sm font-bold text-slate-800 dark:text-zinc-200 capitalize tracking-wider">
+              Storage - {formatBytes(limitBytes)}
+            </span>
+          </div>
+          <span className="text-[10px] tracking-wider uppercase font-extrabold px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/30">
+            {plan || "free"} Plan
+          </span>
+        </div>
+        
+        <div className="w-full bg-slate-200 dark:bg-zinc-800 h-2 rounded-full overflow-hidden">
+          <div 
+            className="h-full bg-[#f07b5f] rounded-full transition-all duration-300"
+            style={{ width: `${usagePercent}%` }}
+          />
+        </div>
+
+        <div className="flex justify-between text-xs font-semibold text-slate-500 dark:text-zinc-400">
+          <span>{formatBytes(totalUsedBytes)} used</span>
+          <span>{formatBytes(freeBytes)} free</span>
+        </div>
       </div>
 
       {/* ── Media Grid ── */}

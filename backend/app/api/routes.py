@@ -14,7 +14,8 @@ from app.integrations.queries import (
     get_ideas_with_chat_status,
     get_user_profile,
     delete_idea,
-    update_user_streak
+    update_user_streak,
+    update_content_goal,
 )
 from app.schemas.auth import AuthRequest
 from app.schemas.response import HealthResponse
@@ -111,6 +112,9 @@ class GenerateFieldRequest(BaseModel):
 
 class UpdateStreakTargetRequest(BaseModel):
     streak_frequency: str = Field(..., min_length=1)
+
+class UpdateContentGoalRequest(BaseModel):
+    content_goal: str
 
 # ── Health ────────────────────────────────────────────────────────────────────
 
@@ -638,3 +642,23 @@ async def update_streak_target_endpoint(
     except Exception as e:
         print("UPDATE STREAK TARGET ERROR:", str(e))
         raise HTTPException(status_code=502, detail=str(e))
+    
+VALID_CONTENT_GOALS = {"views", "engagement", "followers", "authority", "leads", "sales"}
+
+@router.patch("/profile/content-goal")
+async def update_content_goal_endpoint(
+    body: UpdateContentGoalRequest,
+    user_id: str = Depends(get_current_user_id),
+    supabase=Depends(get_supabase),
+):
+    """Saves the user's content goal preference to their profile."""
+    if body.content_goal not in VALID_CONTENT_GOALS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid content_goal. Must be one of: {', '.join(sorted(VALID_CONTENT_GOALS))}"
+        )
+    try:
+        result = update_content_goal(supabase, user_id, body.content_goal)
+        return {"success": True, "content_goal": body.content_goal}
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))

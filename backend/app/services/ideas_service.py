@@ -200,6 +200,7 @@ def _build_generation_prompt(
     language: str,
     trends: list[str],
     exclude_ideas: list[str],
+    content_goal: str = "engagement",
 ) -> str:
     trend_section = ""
     if trends:
@@ -231,12 +232,23 @@ def _build_generation_prompt(
     else:
         lang_rule = "- Write ideas in clear, natural English"
 
+    CONTENT_GOAL_INSTRUCTIONS = {
+        "views":       "maximise reach and impressions — prioritise trending formats, broad appeal, and strong hooks",
+        "engagement":  "drive comments, shares, and saves — prioritise relatable content, questions, and conversation starters",
+        "followers":   "grow the audience — prioritise value-packed content, strong follow CTAs, and highly shareable posts",
+        "authority":   "build credibility and thought leadership — prioritise educational, data-backed, and opinionated content",
+        "leads":       "generate leads and enquiries — prioritise problem-aware content, DM CTAs, and social proof",
+        "sales":       "drive direct purchases — prioritise offers, testimonials, urgency, and product-focused storytelling",
+    }
+    goal_instruction = CONTENT_GOAL_INSTRUCTIONS.get(content_goal, CONTENT_GOAL_INSTRUCTIONS["engagement"])
+
     return f"""You are a senior Instagram content strategist who knows what actually performs.
 
 Creator profile:
 - Niche: {niche}
 - Tone: {tone}
 - Content style: {style}
+- Content goal: {content_goal} — {goal_instruction}
 {trend_section}{exclude_section}
 Generate exactly 3 postable Instagram content ideas for this creator.
 
@@ -244,6 +256,7 @@ Rules:
 - Each idea must be a single clear sentence (max 20 words)
 - Ideas must be practical, specific, and postable TODAY — not generic
 - Match the creator's tone and style precisely
+- Every idea must directly serve the content goal: {goal_instruction}
 - No hooks, no scripts, no captions, no format/editing guidance inside ideas
 - recommended idea should be the strongest one (highest viral/engagement potential)
 - alternatives should be solid backups that complement the recommended
@@ -315,8 +328,9 @@ def generate_structured_ideas(
     language: str,
     trends: list[str],
     exclude_ideas: list[str],
+    content_goal: str = "engagement",       # ← added
 ) -> dict:
-    prompt = _build_generation_prompt(niche, tone, style, language, trends, exclude_ideas)
+    prompt = _build_generation_prompt(niche, tone, style, language, trends, exclude_ideas, content_goal)
     raw = generate_content(prompt)
     return _parse_structured_ideas(raw)
 
@@ -362,8 +376,9 @@ async def handle_generate_ideas(supabase, user_id: str) -> dict:
     # if daily_limit is not None and ideas_used >= daily_limit:
     #     raise IdeaLimitReached(plan=plan, used=ideas_used, limit=daily_limit)
 
-    niche    = profile.get("niche", "Lifestyle")
-    language = profile.get("language", "english")
+    niche        = profile.get("niche", "Lifestyle")
+    language     = profile.get("language", "english")
+    content_goal = profile.get("content_goal") or "engagement"   # ← added
 
     trends = _fetch_trends_for_niche(supabase, niche)
     seen = _get_seen_ideas(user_id)
@@ -378,6 +393,7 @@ async def handle_generate_ideas(supabase, user_id: str) -> dict:
             language=language,
             trends=trends,
             exclude_ideas=exclude_list,
+            content_goal=content_goal,
         )
     except Exception as e:
         print(f"[ideas_service] AI generation failed, using fallback: {e}")
@@ -810,6 +826,7 @@ def _build_single_idea_prompt(
     language: str,
     trends: list[str],
     exclude_ideas: list[str],
+    content_goal: str = "engagement",
 ) -> str:
     trend_section = ""
     if trends:
@@ -841,12 +858,23 @@ def _build_single_idea_prompt(
     else:
         lang_rule = "- Write the idea in clear, natural English"
 
+    CONTENT_GOAL_INSTRUCTIONS = {
+        "views":       "maximise reach and impressions — prioritise trending formats, broad appeal, and strong hooks",
+        "engagement":  "drive comments, shares, and saves — prioritise relatable content, questions, and conversation starters",
+        "followers":   "grow the audience — prioritise value-packed content, strong follow CTAs, and highly shareable posts",
+        "authority":   "build credibility and thought leadership — prioritise educational, data-backed, and opinionated content",
+        "leads":       "generate leads and enquiries — prioritise problem-aware content, DM CTAs, and social proof",
+        "sales":       "drive direct purchases — prioritise offers, testimonials, urgency, and product-focused storytelling",
+    }
+    goal_instruction = CONTENT_GOAL_INSTRUCTIONS.get(content_goal, CONTENT_GOAL_INSTRUCTIONS["engagement"])
+
     return f"""You are a senior Instagram content strategist who knows what actually performs.
 
 Creator profile:
 - Niche: {niche}
 - Tone: {tone}
 - Content style: {style}
+- Content goal: {content_goal} — {goal_instruction}
 {trend_section}{exclude_section}
 Generate exactly 1 postable Instagram content idea for this creator.
 
@@ -857,6 +885,7 @@ Rules:
 - No hooks, no scripts, no captions, no format/editing guidance inside the idea
 - win_score: realistic integer 1-10 reflecting expected engagement potential
 {lang_rule}
+- The idea must directly serve the content goal: {goal_instruction}
 - Return ONLY valid JSON, no markdown, no explanation, no extra text
 
 Output format (strict JSON):
@@ -914,8 +943,9 @@ async def handle_generate_single_idea(supabase, user_id: str) -> dict:
     # if daily_limit is not None and ideas_used >= daily_limit:
     #     raise IdeaLimitReached(plan=plan, used=ideas_used, limit=daily_limit)
 
-    niche    = profile.get("niche", "Lifestyle")
-    language = profile.get("language", "english")
+    niche        = profile.get("niche", "Lifestyle")
+    language     = profile.get("language", "english")
+    content_goal = profile.get("content_goal") or "engagement"   # ← added
 
     trends = _fetch_trends_for_niche(supabase, niche)
     seen = _get_seen_ideas(user_id)
@@ -930,6 +960,7 @@ async def handle_generate_single_idea(supabase, user_id: str) -> dict:
             language=language,
             trends=trends,
             exclude_ideas=exclude_list,
+            content_goal=content_goal,
         )
         raw = generate_content(prompt)
         single_idea = _parse_single_idea(raw)

@@ -21,20 +21,7 @@
 JOIN:
 - instagram_connections.user_id -> user_profile.id
 
-3) messages
-- id          : uuid
-- chat_id     : uuid
-- sequence    : int4
-- content     : text
-- source      : text
-- type        : text
-- metadata    : jsonb
-- created_at  : timestamptz
-
-JOIN:
-- messages.chat_id -> chats.id
-
-4) user_profile
+3) user_profile
 - id                  : uuid
 - name                : text
 - niche               : text
@@ -49,11 +36,13 @@ JOIN:
 - is_onboarded        : bool
 - ideas_used_today    : int2
 - last_reset_date     : date
+- streak_frequency    : varchar
+- content_goal        : text
 
 JOIN:
 - user_profile.id -> auth.users.id
 
-5) user_stats
+4) user_stats
 - id           : uuid
 - user_id      : uuid
 - stat_date    : date
@@ -66,7 +55,7 @@ JOIN:
 JOIN:
 - user_stats.user_id -> user_profile.id
 
-6) media
+5) media
 - id           : uuid
 - user_id      : uuid
 - file_url     : text
@@ -77,9 +66,8 @@ JOIN:
 JOIN:
 - media.user_id -> user_profile.id
 
-7) posts
+6) posts
 - id             : uuid
-- chat_id        : uuid
 - idea_id        : uuid
 - hook           : text
 - script         : text
@@ -94,11 +82,10 @@ JOIN:
 - shooting_guide : text
 
 JOINS:
-- posts.chat_id -> chats.id
 - posts.user_id -> user_profile.id
 - posts.idea_id -> ideas.id
 
-8) post_media
+7) post_media
 - id           : uuid
 - post_id      : uuid
 - media_id     : uuid
@@ -108,19 +95,7 @@ JOINS:
 - post_media.post_id -> posts.id
 - post_media.media_id -> media.id
 
-9) chats
-- id          : uuid
-- idea_id     : uuid
-- title       : text
-- created_at  : timestamptz
-- updated_at  : timestamptz
-- user_id     : uuid
-
-JOINS:
-- chats.user_id -> user_profile.id
-- chats.idea_id -> ideas.id
-
-10) schedules
+8) schedules
 - id            : uuid
 - post_id       : uuid
 - scheduled_at  : timestamptz
@@ -130,7 +105,7 @@ JOINS:
 JOIN:
 - schedules.post_id -> posts.id
 
-11) ideal_timing
+9) ideal_timing
 - id             : uuid
 - user_id        : uuid
 - niche          : text
@@ -147,7 +122,7 @@ JOIN:
 JOIN:
 - ideal_timing.user_id -> user_profile.id
 
-12) plans
+10) plans
 - id            : uuid
 - name          : text
 - price_monthly : numeric
@@ -158,18 +133,17 @@ JOIN:
 - created_at    : timestamptz
 - updated_at    : timestamptz
 
-13) ideas
+11) ideas
 - id            : uuid
 - user_id       : uuid
 - idea          : text
 - source        : text
-- is_favourite  : bool
 - created_at    : timestamptz
 - updated_at    : timestamptz
-- why_it_works  : text
 - win_score     : int2
 - trend_match   : text
 - trend_id      : uuid
+- scheduled date: date
 
 JOIN:
 - ideas.user_id -> user_profile.id
@@ -179,7 +153,6 @@ JOIN:
 <!-- RELATIONSHIPS -->
 
 user_profile.id -> auth.users.id  
-messages.chat_id -> chats.id  
 posts.chat_id -> chats.id  
 posts.user_id -> user_profile.id  
 posts.idea_id -> ideas.id  

@@ -6,7 +6,7 @@ import { supabase } from "../lib/supabase";
 import { useTheme } from "../context/ThemeContext";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { Spinner } from "../components/Spinner";
-import { API_BASE } from "../lib/apiBase";
+import { API_BASE, updateContentGoal } from "../lib/apiBase";
 
 interface UserProfile {
   name: string;
@@ -14,6 +14,7 @@ interface UserProfile {
   tone: string;
   style: string;
   goal: string;
+  content_goal: string;
   language: "english" | "hinglish";
   streak_frequency: string;
 }
@@ -22,6 +23,14 @@ const NICHES = ["Fitness", "Finance", "Fashion", "Food", "Tech", "Travel", "Educ
 const TONES = ["Casual & fun", "Professional", "Energetic & hype", "Calm & educational", "Inspirational", "Raw & honest"];
 const STYLES = ["Face-to-camera talking", "Voiceover + B-roll", "Text on screen", "POV storytelling", "Educational breakdown", "Comedy skits"];
 const GOALS = ["Grow followers", "Build a brand", "Monetise content", "Post consistently", "Just getting started"];
+const CONTENT_GOALS = [
+  { value: "views",      label: "Views",      icon: "👁️",  desc: "Maximise reach & impressions" },
+  { value: "engagement", label: "Engagement", icon: "💬",  desc: "Drive comments, shares & saves" },
+  { value: "followers",  label: "Followers",  icon: "➕",  desc: "Grow your audience" },
+  { value: "authority",  label: "Authority",  icon: "🏆",  desc: "Build credibility & thought leadership" },
+  { value: "leads",      label: "Leads",      icon: "🎯",  desc: "Generate DMs & sign-ups" },
+  { value: "sales",      label: "Sales",      icon: "💰",  desc: "Drive direct purchases" },
+] as const;
 
 type Section = "profile" | "content" | "account";
 
@@ -176,7 +185,7 @@ function LanguageToggle({
 export default function SettingsPage() {
   const [section, setSection] = useState<Section>("profile");
   const [profile, setProfile] = useState<UserProfile>({
-    name: "", niche: "", tone: "", style: "", goal: "", language: "english", streak_frequency: ""
+    name: "", niche: "", tone: "", style: "", goal: "", content_goal: "", language: "english", streak_frequency: ""
   });
 
   const [initialStreakFreq, setInitialStreakFreq] = useState("");
@@ -290,7 +299,7 @@ export default function SettingsPage() {
 
       const { data } = await supabase
         .from("user_profile")
-        .select("name, niche, tone, style, goal, preferred_language, streak_frequency")
+        .select("name, niche, tone, style, goal, content_goal, preferred_language, streak_frequency")  // ← added content_goal
         .eq("id", user.id)
         .single();
 
@@ -303,6 +312,7 @@ export default function SettingsPage() {
           tone: data.tone ?? "",
           style: data.style ?? "",
           goal: data.goal ?? "",
+          content_goal: data.content_goal ?? "",                  // ← added
           language: (data.preferred_language ?? "english") as "english" | "hinglish",
           streak_frequency: freqValue,
         });
@@ -525,6 +535,39 @@ export default function SettingsPage() {
                       </div>
                       <p className="text-xs text-slate-400 dark:text-zinc-500 mb-4">Helps Postra prioritise what matters to you.</p>
                       <OptionGrid options={GOALS as any} value={profile.goal as any} onChange={(v) => setProfile((p) => ({ ...p, goal: v }))} cols={2} />
+                    </div>
+
+                    {/* Content Goal */}
+                    <div className="bg-white dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 rounded-2xl p-6 shadow-sm">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="text-sm font-semibold text-slate-800 dark:text-zinc-100">Content Goal</h3>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-500/20">
+                          {profile.content_goal || "Not set"}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 dark:text-zinc-500 mb-4">
+                        Shapes the hooks, CTAs, and structure of every idea and post Postra generates.
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {CONTENT_GOALS.map((g) => (
+                          <button
+                            key={g.value}
+                            type="button"
+                            onClick={() => setProfile((p) => ({ ...p, content_goal: g.value }))}
+                            className={`flex flex-col items-start gap-1 px-3 py-3 rounded-xl text-left transition-all border ${
+                              profile.content_goal === g.value
+                                ? "bg-indigo-50 dark:bg-indigo-500/10 border-indigo-300 dark:border-indigo-500/30 text-indigo-800 dark:text-indigo-400 shadow-sm"
+                                : "bg-white dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:border-slate-300 dark:hover:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-900/10"
+                            }`}
+                          >
+                            <span className="text-lg">{g.icon}</span>
+                            <span className="text-xs font-semibold">{g.label}</span>
+                            <span className={`text-xs ${profile.content_goal === g.value ? "text-indigo-400 dark:text-indigo-400" : "text-slate-400 dark:text-zinc-500"}`}>
+                              {g.desc}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
                     <div className="bg-white dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 rounded-2xl p-6 shadow-sm">
