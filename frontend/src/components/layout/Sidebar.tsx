@@ -85,6 +85,15 @@ const navItems: NavItem[] =[
       </svg>
     ),
   },
+  {
+    to: "/referrals",
+    label: "Invite & Earn",
+    icon: (
+      <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+      </svg>
+    ),
+  },
 ];
 
 const bottomItems: NavItem[] =[
@@ -130,7 +139,6 @@ function InstagramStrip({ userId, plan, onRequireUpgrade }: { userId: string | u
 
     setConnecting(true);
 
-    // 🟢 V2: Updated to modern Facebook Login for Business using config_id (ManyChat-style)
     window.FB.login(
       function (response: any) {
         if (response.authResponse) {
@@ -174,7 +182,6 @@ function InstagramStrip({ userId, plan, onRequireUpgrade }: { userId: string | u
         }
       },
       {
-        // 🟢 Config ID triggers direct Business Assets picker modal on click
         config_id: import.meta.env.VITE_META_CONFIG_ID,
       }
     );
@@ -201,7 +208,7 @@ function InstagramStrip({ userId, plan, onRequireUpgrade }: { userId: string | u
               : { background: "rgba(148,163,184,0.2)" }
           }
         >
-          <svg width="11" height="11" viewBox="0 0 24 24" fill={username ? "white" : "rgba(148,163,184,0.6)"}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="white" strokeWidth="0">
             <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069z" />
           </svg>
         </span>
@@ -349,7 +356,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const navigate = useNavigate();
   const [userId, setUserId] = useState<string | undefined>(undefined);
   const [plan, setPlan] = useState("free");
-  const[showUpgradeModal, setShowUpgradeModal] = useState(false); 
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false); 
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {

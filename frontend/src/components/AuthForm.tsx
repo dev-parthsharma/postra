@@ -1,3 +1,5 @@
+// frontend\src\components\AuthForm.tsx
+
 import { useState } from "react";
 
 export interface AuthFormData {
@@ -11,17 +13,44 @@ interface Props {
   onSubmit: (data: AuthFormData) => Promise<void>;
   error?: string | null;
   loading?: boolean;
+  onPasswordFocus?: (email: string) => void;
+  onEmailChange?: (email: string) => void;
+  passwordDisabled?: boolean;
+  noPasswordMode?: boolean;
+  onCreatePasswordClick?: () => void;
 }
 
-export default function AuthForm({ mode, onSubmit, error, loading }: Props) {
+export default function AuthForm({ 
+  mode, 
+  onSubmit, 
+  error, 
+  loading, 
+  onPasswordFocus, 
+  onEmailChange,
+  passwordDisabled,
+  noPasswordMode,
+  onCreatePasswordClick
+}: Props) {
   const [form, setForm] = useState<AuthFormData>({ email: "", password: "", fullName: "" });
   const [showPw, setShowPw] = useState(false);
   const isSignup = mode === "signup";
 
-  const set = (key: keyof AuthFormData) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((p) => ({ ...p, [key]: e.target.value }));
+  const set = (key: keyof AuthFormData) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setForm((p) => {
+      const next = { ...p, [key]: val };
+      if (key === "email") {
+        onEmailChange?.(val);
+      }
+      return next;
+    });
+  };
 
-  const submit = (e: React.FormEvent) => { e.preventDefault(); onSubmit(form); };
+  const submit = (e: React.FormEvent) => { 
+    e.preventDefault(); 
+    if (passwordDisabled) return;
+    onSubmit(form); 
+  };
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-4 w-full">
@@ -54,13 +83,27 @@ export default function AuthForm({ mode, onSubmit, error, loading }: Props) {
             id="password" name="password"
             type={showPw ? "text" : "password"}
             autoComplete={isSignup ? "new-password" : "current-password"}
-            required value={form.password} onChange={set("password")}
-            placeholder={isSignup ? "Min. 8 characters" : "••••••••"}
-            className="w-full px-4 py-3 pr-11 rounded-xl bg-white border border-zinc-400 text-zinc-900 text-sm placeholder-zinc-450 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/30 transition-all"
+            required={!passwordDisabled}
+            disabled={passwordDisabled}
+            value={form.password} onChange={set("password")}
+            onFocus={() => {
+              if (mode === "login") {
+                onPasswordFocus?.(form.email);
+              }
+            }}
+            placeholder={
+              passwordDisabled 
+                ? "Password input locked" 
+                : (isSignup ? "Min. 8 characters" : "••••••••")
+            }
+            className={`w-full px-4 py-3 pr-11 rounded-xl bg-white border border-zinc-400 text-zinc-900 text-sm placeholder-zinc-450 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/30 transition-all ${
+              passwordDisabled ? "bg-zinc-100 cursor-not-allowed opacity-60 text-zinc-400 border-zinc-300" : ""
+            }`}
           />
           <button
             type="button" onClick={() => setShowPw((p) => !p)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-700 transition-colors p-1"
+            disabled={passwordDisabled}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-700 transition-colors p-1 disabled:opacity-30"
             aria-label={showPw ? "Hide password" : "Show password"}
           >
             {showPw ? (
@@ -78,29 +121,39 @@ export default function AuthForm({ mode, onSubmit, error, loading }: Props) {
       </div>
 
       {error && (
-        <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+        <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 text-sm animate-in fade-in duration-200">
           <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
           </svg>
-          <span>{error}</span>
+          <span className="leading-tight">{error}</span>
         </div>
       )}
 
-      <button
-        type="submit"
-        disabled={loading}
-        className="w-full py-3 mt-2 rounded-xl bg-gradient-to-r from-purple-500 to-purple-600 text-white font-semibold text-sm tracking-wide shadow-md hover:shadow-lg hover:scale-[1.01] active:scale-[0.98] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-      >
-        {loading ? (
-          <>
-            <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-            {isSignup ? "Creating account…" : "Signing in…"}
-          </>
-        ) : isSignup ? "Create account →" : "Sign in →"}
-      </button>
+      {noPasswordMode ? (
+        <button
+          type="button"
+          onClick={onCreatePasswordClick}
+          className="w-full py-3 mt-2 rounded-xl bg-gradient-to-r from-purple-500 to-purple-600 text-white font-semibold text-sm tracking-wide shadow-md hover:shadow-lg hover:scale-[1.01] active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2"
+        >
+          Create Password →
+        </button>
+      ) : (
+        <button
+          type="submit"
+          disabled={loading || passwordDisabled}
+          className="w-full py-3 mt-2 rounded-xl bg-gradient-to-r from-purple-500 to-purple-600 text-white font-semibold text-sm tracking-wide shadow-md hover:shadow-lg hover:scale-[1.01] active:scale-[0.98] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          {loading ? (
+            <>
+              <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              {isSignup ? "Creating account…" : "Signing in…"}
+            </>
+          ) : isSignup ? "Create account →" : "Sign in →"}
+        </button>
+      )}
     </form>
   );
 }

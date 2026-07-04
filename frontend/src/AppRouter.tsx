@@ -21,6 +21,8 @@ import SettingsPage from "./pages/Settings";
 import AutomationsPage from "./pages/Automations";
 import UpgradePage from "./pages/Upgrade";
 import MediaPage from "./pages/Media";
+import Referrals from "./pages/Referrals";
+import OnboardingReferralModal from "./components/ReferralModal";
 
 // ── ProtectedRoute ────────────────────────────────────────────────────────────
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -54,56 +56,76 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 // ── HomeWithOnboarding ────────────────────────────────────────────────────────
 // Shows onboarding modal for new users.
 // Language preference modal is shown ONCE right after onboarding completes — never again.
+// frontend/src/AppRouter.tsx
+
 function HomeWithOnboarding() {
   const { user } = useAuth();
   const location = useLocation();
+  const [showReferralModal, setShowReferralModal] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [currentLanguage, setCurrentLanguage] = useState("english");
 
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    if (params.get("onboarding") === "true") {
-      // Double-check: only show if profile truly incomplete
-      if (!user) return;
-      supabase
-        .from("user_profile")
-        .select("niche, content_goal")
-        .eq("id", user.id)
-        .single()
-        .then(({ data }) => {
-          if (!data || !data.niche || !data.content_goal) setShowOnboarding(true);
-        });
-      return;
-    }
-
     if (!user) return;
 
-    const checkProfile = async () => {
-      const { data: profile } = await supabase
-        .from("user_profile")
-        .select("id, niche, content_goal, preferred_language, is_onboarded")
-        .eq("id", user.id)
-        .single();
+    const checkProfileProgress = async () => {
+      console.log("Checking progress for user:", user.id);
 
-      // Show onboarding if user has never fully completed it
-      if (!profile || !profile.niche || !profile.content_goal) {
+      // Fetch user profile cleanly using maybeSingle()
+      const { data: profile, error } = await supabase
+        .from("user_profile")
+        .select("niche, content_goal, referral_step_completed")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error("Database query error:", error);
+        return;
+      }
+
+      console.log("Profile data retrieved:", profile);
+
+      if (!profile) {
+        console.log("Profile row is still null. Trigger may still be executing.");
+        return;
+      }
+
+      // ── Step 1: Run referral code prompt if not completed or skipped yet ──
+      if (!profile.referral_step_completed) {
+        console.log("Referral step is not completed. Showing ReferralModal.");
+        setShowReferralModal(true);
+        return;
+      }
+
+      // ── Step 2: Run onboarding if profile values are incomplete ──
+      if (!profile.niche || !profile.content_goal) {
+        console.log("Profile niche or goal is missing. Showing OnboardingModal.");
         setShowOnboarding(true);
         return;
       }
+
+      console.log("Onboarding is fully complete. Bypassing modals.");
     };
 
-    checkProfile();
+    checkProfileProgress();
   }, [location.search, user]);
+
+  const handleReferralComplete = () => {
+    setShowReferralModal(false);
+    // Move to next onboarding steps automatically
+    setShowOnboarding(true);
+  };
 
   const handleOnboardingComplete = async () => {
     setShowOnboarding(false);
-    // Clear the onboarding param from URL
+    
+    // Clear URL parameters
     const url = new URL(window.location.href);
     url.searchParams.delete("onboarding");
     window.history.replaceState({}, "", url.toString());
 
-    // Show language modal immediately after onboarding — this is the one-time trigger
+    // ── Step 3: Run language setup immediately after onboarding completes ──
     if (user) {
       const { data: profile } = await supabase
         .from("user_profile")
@@ -122,10 +144,19 @@ function HomeWithOnboarding() {
   return (
     <>
       <Dashboard />
-      {showOnboarding && user && (
+      
+      {/* Step 1: Referral Check */}
+      {showReferralModal && user && (
+        <OnboardingReferralModal userId={user.id} onComplete={handleReferralComplete} />
+      )}
+
+      {/* Step 2: Onboarding Survey */}
+      {showOnboarding && user && !showReferralModal && (
         <OnboardingModal userId={user.id} onComplete={handleOnboardingComplete} />
       )}
-      {showLanguageModal && user && !showOnboarding && (
+
+      {/* Step 3: One-time Language Setup */}
+      {showLanguageModal && user && !showOnboarding && !showReferralModal && (
         <LanguagePreferenceModal
           userId={user.id}
           currentLanguage={currentLanguage}
@@ -138,6 +169,15 @@ function HomeWithOnboarding() {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 export default function AppRouter() {
+  // Capture referral links on first page load
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const refCode = params.get("ref") || params.get("referral");
+    if (refCode) {
+      localStorage.setItem("postra_captured_ref_code", refCode.trim().toUpperCase());
+    }
+  }, []);
+
   return (
     <BrowserRouter>
       <Routes>
@@ -146,6 +186,18 @@ export default function AppRouter() {
         <Route path="/signup" element={<Signup />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/update-password" element={<UpdatePassword />} />
+        
+        {/* Referrals */}
+        <Route
+          path="/referrals"
+          element={
+            <ProtectedRoute>
+              <DashboardLayout>
+                <Referrals />
+              </DashboardLayout>
+            </ProtectedRoute>
+          }
+        />
 
         {/* Protected — redirect / to /dashboard */}
         <Route

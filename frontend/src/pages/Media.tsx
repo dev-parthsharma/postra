@@ -11,13 +11,16 @@ interface MediaItem {
   type: string;
   file_size: number;
   created_at: string;
+  expires_at?: string | null;
 }
 
 const PLAN_LIMITS: Record<string, number> = {
   free: 1 * 1024 * 1024 * 1024,      // 1 GB
-  starter: 10 * 1024 * 1024 * 1024,  // 10 GB
-  pro: 100 * 1024 * 1024 * 1024,     // 100 GB
+  starter: 5 * 1024 * 1024 * 1024,   // 5 GB
+  pro: 10 * 1024 * 1024 * 1024,      // 10 GB
 };
+
+const ALLOWED_VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime"];
 
 export default function Media() {
   const { user } = useAuth();
@@ -28,6 +31,7 @@ export default function Media() {
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   // ── View, Selection & Delete States ────────────────────────────────────────
@@ -68,7 +72,7 @@ export default function Media() {
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTriggered = useRef(false);
 
-  // ── Fetch Data ─────────────────────────────────────────────────────────────
+  // ── Fetch Data & Auto-Purge ────────────────────────────────────────────────
   useEffect(() => {
     if (!user) return;
 
@@ -83,6 +87,36 @@ export default function Media() {
       const userPlan = ["free", "starter", "pro"].includes(rawPlan) ? rawPlan : "free";
       setPlan(userPlan);
 
+      // Sweeper Engine: Background cleanup of any expired videos for this creator
+      const { data: expiredMedia } = await supabase
+        .from("media")
+        .select("*")
+        .eq("user_id", user.id)
+        .lt("expires_at", new Date().toISOString());
+
+      if (expiredMedia && expiredMedia.length > 0) {
+        const pathsToDeleteByBucket: Record<string, string[]> = {};
+        expiredMedia.forEach(item => {
+          const bucketName = item.type.includes("video") ? "postra_videos" : "postra_covers";
+          const splitStr = `/${bucketName}/`;
+          const parts = item.file_url.split(splitStr);
+          if (parts.length > 1) {
+            if (!pathsToDeleteByBucket[bucketName]) {
+              pathsToDeleteByBucket[bucketName] = [];
+            }
+            pathsToDeleteByBucket[bucketName].push(parts[1]);
+          }
+        });
+
+        for (const [bucketName, paths] of Object.entries(pathsToDeleteByBucket)) {
+          await supabase.storage.from(bucketName).remove(paths);
+        }
+
+        const expiredIds = expiredMedia.map(item => item.id);
+        await supabase.from("media").delete().in("id", expiredIds);
+      }
+
+      // Fetch active media items
       const { data: media } = await supabase
         .from("media")
         .select("*")
@@ -107,13 +141,13 @@ export default function Media() {
   const executeUpload = async (fileToUpload: File) => {
     if (!user) return;
 
-    // Guardrail: Final check of storage availability immediately before executing upload
     const currentUsed = mediaItems.reduce((acc, item) => acc + (item.file_size || 0), 0);
     const limit = PLAN_LIMITS[plan || "free"] || PLAN_LIMITS.free;
 
     if (currentUsed + fileToUpload.size > limit) {
       alert(`Storage limit exceeded! Remaining space is ${formatBytes(limit - currentUsed)}, but this file requires ${formatBytes(fileToUpload.size)}.`);
       setUploading(false);
+      setUploadStatus(null);
       setCropFile(null);
       setCropImgUrl(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -121,25 +155,40 @@ export default function Media() {
     }
 
     setUploading(true);
+    setUploadStatus("Uploading to cloud storage...");
     try {
       const fileExt = fileToUpload.name.split(".").pop() || "jpg";
       const fileName = `${user.id}/${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
       
+      const isVideo = fileToUpload.type.startsWith("video/");
+      const bucketName = isVideo ? "postra_videos" : "postra_covers";
+
       const { error: uploadError } = await supabase.storage
-        .from("postra_covers")
+        .from(bucketName)
         .upload(fileName, fileToUpload);
 
       if (uploadError) throw uploadError;
 
       const { data: urlData } = supabase.storage
-        .from("postra_covers")
+        .from(bucketName)
         .getPublicUrl(fileName);
+
+      // Verify size for the 7-day auto-delete trigger on the Pro plan
+      const isLargeProVideo = isVideo && plan === "pro" && fileToUpload.size > 80 * 1024 * 1024;
+      const expiresAt = isLargeProVideo
+        ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+        : null;
+
+      if (isLargeProVideo) {
+        alert("Notice: Since the uploaded video file exceeds 80 MB, it will be automatically deleted in 7 days to conserve space.");
+      }
 
       const newMedia = {
         user_id: user.id,
         file_url: urlData.publicUrl,
         type: fileToUpload.type.substring(0, 10),
         file_size: fileToUpload.size,
+        expires_at: expiresAt,
       };
 
       const { data: insertedData, error: dbError } = await supabase
@@ -156,6 +205,7 @@ export default function Media() {
       alert("Failed to upload file. Please try again.");
     } finally {
       setUploading(false);
+      setUploadStatus(null);
       setCropFile(null);
       setCropImgUrl(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -168,7 +218,6 @@ export default function Media() {
     let targetW = img.width;
     let targetH = img.height;
     
-    // Max cap at 1080x1920
     const MAX_W = 1080;
     const MAX_H = 1920;
 
@@ -183,9 +232,11 @@ export default function Media() {
     const ctx = canvas.getContext("2d");
     
     if (!ctx) {
-      executeUpload(originalFile); // Fallback to original if canvas fails
+      executeUpload(originalFile);
       return;
     }
+
+    setUploadStatus("Optimizing image size...");
 
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, targetW, targetH);
@@ -196,7 +247,6 @@ export default function Media() {
         executeUpload(originalFile);
         return;
       }
-      // Force JPEG and 70% quality (~200KB - 400KB limit)
       const compressedFile = new File([blob], `compressed_${Date.now()}.jpg`, { type: "image/jpeg" });
       executeUpload(compressedFile);
     }, "image/jpeg", 0.7);
@@ -208,7 +258,6 @@ export default function Media() {
     const file = e.target.files?.[0];
     if (!file || !user) return;
 
-    // Guardrail: Initial check to block the upload flow early if size exceeds available space
     const currentUsed = mediaItems.reduce((acc, item) => acc + (item.file_size || 0), 0);
     const limit = PLAN_LIMITS[plan || "free"] || PLAN_LIMITS.free;
 
@@ -218,8 +267,34 @@ export default function Media() {
       return;
     }
 
+    // ── Handle Video Uploads ──
+    if (file.type.startsWith("video/")) {
+      if (!ALLOWED_VIDEO_TYPES.includes(file.type)) {
+        alert("Unsupported video format. Please upload MP4, WebM, or QuickTime.");
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
+
+      // Check tier upload limits
+      if (plan === "free" && file.size > 25 * 1024 * 1024) {
+        alert("Free Plan supports video uploads up to 25 MB. Upgrade to upload larger files.");
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
+      if (plan === "starter" && file.size > 50 * 1024 * 1024) {
+        alert("Starter Plan supports video uploads up to 50 MB. Upgrade to Pro for unlimited sizes.");
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
+
+      // Direct upload (bypasses canvas encoder to protect 100% of audio and frame quality)
+      executeUpload(file);
+      return;
+    }
+
+    // ── Handle Image Uploads ──
     if (file.type.startsWith("image/")) {
-      setUploading(true); // Show loader while analyzing/compressing
+      setUploading(true);
       const url = URL.createObjectURL(file);
       const img = new Image();
       img.onload = () => {
@@ -227,10 +302,8 @@ export default function Media() {
         const targetRatio = 9 / 16;
         
         if (Math.abs(ratio - targetRatio) < 0.01) {
-          // It's 9:16 - compress & upload immediately
           compressAndUploadDirectly(file, img);
         } else {
-          // Not 9:16 - open crop screen
           setUploading(false);
           setImgDimensions({ w: img.width, h: img.height });
           setCropFile(file);
@@ -243,7 +316,6 @@ export default function Media() {
       };
       img.src = url;
     } else {
-      // It's a video, upload directly without canvas processing
       executeUpload(file);
     }
   };
@@ -278,6 +350,7 @@ export default function Media() {
   const saveCropAndUpload = () => {
     if (!cropFile || !cropImgUrl) return;
     setUploading(true);
+    setUploadStatus("Cropping image...");
     
     const canvas = document.createElement("canvas");
     const TARGET_W = 1080;
@@ -308,7 +381,6 @@ export default function Media() {
           setUploading(false);
           return;
         }
-        // Force JPEG and 70% quality (~200KB - 400KB limit)
         const croppedFile = new File([blob], `cropped_${Date.now()}.jpg`, { type: "image/jpeg" });
         executeUpload(croppedFile);
       }, "image/jpeg", 0.7);
@@ -326,13 +398,23 @@ export default function Media() {
     
     setDeleting(true);
     try {
-      const pathsToDelete = itemsToDelete.map(item => {
-        const parts = item.file_url.split('/postra_covers/');
-        return parts.length > 1 ? parts[1] : null;
-      }).filter(Boolean) as string[];
+      const pathsToDeleteByBucket: Record<string, string[]> = {};
 
-      if (pathsToDelete.length > 0) {
-        await supabase.storage.from("postra_covers").remove(pathsToDelete);
+      itemsToDelete.forEach(item => {
+        const bucketName = item.type.includes("video") ? "postra_videos" : "postra_covers";
+        const splitStr = `/${bucketName}/`;
+        const parts = item.file_url.split(splitStr);
+        if (parts.length > 1) {
+          if (!pathsToDeleteByBucket[bucketName]) {
+            pathsToDeleteByBucket[bucketName] = [];
+          }
+          pathsToDeleteByBucket[bucketName].push(parts[1]);
+        }
+      });
+
+      // Synchronously delete objects from respective storage buckets
+      for (const [bucketName, paths] of Object.entries(pathsToDeleteByBucket)) {
+        await supabase.storage.from(bucketName).remove(paths);
       }
 
       const idsToDelete = itemsToDelete.map(i => i.id);
@@ -466,7 +548,7 @@ export default function Media() {
             <div>
               <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Media Library</h1>
               <p className="text-sm text-slate-500 dark:text-zinc-400 mt-1">
-                Upload images to generate content ideas.
+                Upload images and videos to generate content ideas.
               </p>
             </div>
             
@@ -485,7 +567,7 @@ export default function Media() {
                 type="file" 
                 ref={fileInputRef} 
                 onChange={handleFileChange} 
-                accept="image/*,video/*" 
+                accept="image/*,video/mp4,video/webm,video/quicktime" 
                 className="hidden" 
               />
               <button
@@ -500,7 +582,7 @@ export default function Media() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
                   </svg>
                 )}
-                {uploading ? "Uploading..." : "Upload"}
+                {uploading ? (uploadStatus || "Uploading...") : "Upload"}
               </button>
             </div>
           </>
@@ -536,6 +618,16 @@ export default function Media() {
         </div>
       </div>
 
+      {/* ── Recommendation Notice ── */}
+      <div className="p-4 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30 rounded-2xl flex items-start gap-3">
+        <svg className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <p className="text-xs text-blue-700 dark:text-blue-300 font-medium leading-relaxed">
+          Recommended: Delete media files that are no longer needed to maintain optimal workspace speed and enjoy significantly faster video processing times.
+        </p>
+      </div>
+
       {/* ── Media Grid ── */}
       {mediaItems.length === 0 ? (
         <div className="border-2 border-dashed border-slate-200 dark:border-zinc-800 rounded-2xl p-12 text-center">
@@ -560,7 +652,14 @@ export default function Media() {
                 }`}
               >
                 {item.type.includes("video") ? (
-                  <video src={item.file_url} className={`w-full h-full object-cover transition-transform duration-300 ${isSelected ? 'scale-95 rounded-xl' : ''}`} />
+                  <div className="w-full h-full relative">
+                    <video src={item.file_url} className={`w-full h-full object-cover transition-transform duration-300 ${isSelected ? 'scale-95 rounded-xl' : ''}`} />
+                    {item.expires_at && (
+                      <span className="absolute bottom-2 left-2 px-2 py-0.5 bg-rose-600/90 text-white rounded text-[9px] font-bold uppercase tracking-wider">
+                        Expires Soon
+                      </span>
+                    )}
+                  </div>
                 ) : (
                   <img src={item.file_url} alt="Media" className={`w-full h-full object-cover transition-transform duration-300 ${isSelected ? 'scale-95 rounded-xl' : ''}`} />
                 )}

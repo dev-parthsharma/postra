@@ -25,6 +25,8 @@ from app.services import ideas_service
 from app.services.ideas_service import IdeaInvalid, IdeaConfused, IdeaLimitReached
 from app.core.settings import settings
 from app.services.instagram_service import publish_reel_to_instagram
+from app.services.referral_service import ReferralService
+from fastapi import Request
 
 router = APIRouter()
 
@@ -115,6 +117,13 @@ class UpdateStreakTargetRequest(BaseModel):
 
 class UpdateContentGoalRequest(BaseModel):
     content_goal: str
+
+class CheckStatusRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=100)
+
+class ApplyReferralRequest(BaseModel):
+    referral_code: str = Field(..., min_length=3, max_length=50)
+    device_id: str = Field(..., min_length=10)
 
 # ── Health ────────────────────────────────────────────────────────────────────
 
@@ -662,3 +671,44 @@ async def update_content_goal_endpoint(
         return {"success": True, "content_goal": body.content_goal}
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.post("/auth/check-status")
+def check_status_endpoint(body: CheckStatusRequest):
+    try:
+        status = AuthService.check_password_status(body.email)
+        return status
+    except Exception as e:
+        print("CHECK STATUS ERROR:", str(e))
+        raise HTTPException(status_code=502, detail=str(e))
+    
+@router.post("/referrals/apply")
+async def apply_referral_endpoint(
+    body: ApplyReferralRequest,
+    request: Request,
+    user_id: str = Depends(get_current_user_id)
+):
+    # Capture sender IP
+    client_ip = request.client.host if request.client else "unknown"
+    
+    result = await ReferralService.apply_referral_code(
+        referred_user_id=user_id,
+        code=body.referral_code,
+        device_id=body.device_id,
+        ip_address=client_ip
+    )
+    
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("message"))
+        
+    return result
+
+@router.get("/referrals/dashboard")
+def get_referral_dashboard_endpoint(
+    user_id: str = Depends(get_current_user_id)
+):
+    try:
+        data = ReferralService.get_referral_dashboard(user_id)
+        return data
+    except Exception as e:
+        print("REFERRAL DASHBOARD ERROR:", str(e))
+        raise HTTPException(status_code=502, detail=str(e))
