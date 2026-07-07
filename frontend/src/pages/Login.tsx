@@ -1,6 +1,6 @@
 // frontend\src\pages\Login.tsx
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import AuthForm, { AuthFormData } from "../components/AuthForm";
@@ -8,10 +8,10 @@ import logo from "../assets/postra-logo.png";
 import { supabase } from "../lib/supabase";
 
 export default function Login() {
-  const { signIn, signInWithGoogle} = useAuth();
+  const { signIn, signInWithGoogle, user, loading } = useAuth(); // Destructured user and loading
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loadingForm, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<"google" | null>(null);
   
   // Real-time status states
@@ -32,6 +32,13 @@ export default function Login() {
   const [otpMessage, setOtpMessage] = useState("");
 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  // ── Redirect on Mount if Session is Already Active ──
+  useEffect(() => {
+    if (!loading && user) {
+      navigate("/dashboard");
+    }
+  }, [user, loading, navigate]);
 
   // Real-time typed check
   const handleEmailChange = async (email: string) => {
@@ -430,7 +437,7 @@ export default function Login() {
               mode="login" 
               onSubmit={handleSubmit} 
               error={error} 
-              loading={loading} 
+              loading={loadingForm} 
               onPasswordFocus={handlePasswordFocus}
               onEmailChange={handleEmailChange}
               passwordDisabled={!!noPasswordUser}

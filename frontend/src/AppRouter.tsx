@@ -73,7 +73,7 @@ function HomeWithOnboarding() {
       console.log("Checking progress for user:", user.id);
 
       // Fetch user profile cleanly using maybeSingle()
-      const { data: profile, error } = await supabase
+      let { data: profile, error } = await supabase
         .from("user_profile")
         .select("niche, content_goal, referral_step_completed")
         .eq("id", user.id)
@@ -84,12 +84,33 @@ function HomeWithOnboarding() {
         return;
       }
 
+      // If the profile does not exist yet (First-time signup fallback), create it
+      if (!profile) {
+        console.log("Profile is missing. Creating profile row...");
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        const fullName = authUser?.user_metadata?.full_name || authUser?.user_metadata?.name || authUser?.email?.split("@")[0] || "Creator";
+        
+        const { data: newProfile, error: insertError } = await supabase
+          .from("user_profile")
+          .insert({
+            id: user.id,
+            name: fullName,
+            plan: "pro", // Initial Pro plan for the trial
+            referral_step_completed: false
+          })
+          .select()
+          .maybeSingle();
+
+        if (insertError) {
+          console.error("Failed to auto-create user profile row on signup:", insertError);
+          return;
+        }
+        profile = newProfile;
+      }
+
       console.log("Profile data retrieved:", profile);
 
-      if (!profile) {
-        console.log("Profile row is still null. Trigger may still be executing.");
-        return;
-      }
+      if (!profile) return;
 
       // ── Step 1: Run referral code prompt if not completed or skipped yet ──
       if (!profile.referral_step_completed) {

@@ -10,6 +10,16 @@ export interface AuthState {
   loading: boolean;
 }
 
+// ── Cookie Synchronization Helpers ───────────────────────────────────────────
+// These cookies allow the parent domain (postra.co.in) to read active login states
+const setSessionCookie = () => {
+  document.cookie = "postra_session_active=true; path=/; domain=.postra.co.in; max-age=31536000; SameSite=Lax; Secure";
+};
+
+const clearSessionCookie = () => {
+  document.cookie = "postra_session_active=; path=/; domain=.postra.co.in; max-age=0; SameSite=Lax; Secure";
+};
+
 export function useAuth() {
   const [state, setState] = useState<AuthState>({
     user: null,
@@ -25,10 +35,14 @@ export function useAuth() {
         const { data: userData, error } = await supabase.auth.getUser();
       
         if (error || !userData.user) {
+          clearSessionCookie(); // Sync cookie on auth failure
           await supabase.auth.signOut();
           setState({ user: null, session: null, loading: false });
           return;
         }
+        setSessionCookie(); // Sync cookie on auth success
+      } else {
+        clearSessionCookie(); // Sync cookie on unauthenticated mount
       }
     
       setState({ user: session?.user ?? null, session, loading: false });
@@ -43,10 +57,14 @@ export function useAuth() {
           const { data: userData, error } = await supabase.auth.getUser();
         
           if (error || !userData.user) {
+            clearSessionCookie(); // Sync cookie on auth failure
             await supabase.auth.signOut();
             setState({ user: null, session: null, loading: false });
             return;
           }
+          setSessionCookie(); // Set cookie on sign-in or OAuth callback completion
+        } else {
+          clearSessionCookie(); // Clear cookie on sign-out
         }
       
         setState({ user: session?.user ?? null, session, loading: false });
@@ -81,6 +99,7 @@ export function useAuth() {
   };
 
   const signOut = async () => {
+    clearSessionCookie(); // Explicitly remove session cookie on manual logout
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
   };
