@@ -279,7 +279,7 @@ function NavContent({ userId, plan, onMobileClose, onSignOut, onUpgrade, onRequi
       <div className="px-4 py-5 border-b border-slate-100 dark:border-white/[0.06] flex-shrink-0">
         <div className="flex items-center gap-2.5">
           <img
-            src="https://postra-landing.vercel.app/assets/postra.png"
+            src="https://postra.co.in/assets/postra.png"
             alt="Postra"
             className="h-8 w-auto object-contain"
             onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
@@ -404,7 +404,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             <div className="flex items-center justify-between px-4 pt-4 pb-2 flex-shrink-0">
               <div className="flex items-center gap-2">
                 <img
-                  src="https://postra-landing.vercel.app/assets/postra.png"
+                  src="https://postra.co.in/assets/postra.png"
                   alt="Postra"
                   className="h-7 w-auto"
                   onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}

@@ -29,7 +29,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         </button>
         <div className="flex items-center gap-2">
           <img
-            src="https://postra-landing.vercel.app/assets/postra.png"
+            src="https://postra.co.in/assets/postra.png"
             alt="Postra"
             className="h-6 w-auto"
             onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}

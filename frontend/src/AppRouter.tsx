@@ -35,7 +35,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
         <div className="flex flex-col items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-indigo-600 animate-pulse flex items-center justify-center">
             <img
-              src="https://postra-landing.vercel.app/assets/postra.png"
+              src="https://postra.co.in/assets/postra.png"
               alt="Postra"
               className="h-6 w-auto brightness-0 invert"
             />
