@@ -1,14 +1,25 @@
 // frontend/middleware.js
 
 export const config = {
-  /*
-   * Matches all request paths EXCEPT:
-   * - assets (Vite compiled static assets)
-   * - favicon.ico (browser tab icon)
-   * - Any path containing a period "." (e.g. style.css, script.js, postra-logo.png)
-   */
+  // Explicitly list all active routes in your SPA to avoid regex engine mismatches
   matcher: [
-    '/((?!assets|favicon.ico|.*\\..*).*)',
+    '/', 
+    '/login', 
+    '/signup', 
+    '/auth/callback', 
+    '/update-password',
+    '/dashboard', 
+    '/ideas', 
+    '/media', 
+    '/chat/:path*', 
+    '/drafts', 
+    '/scheduled', 
+    '/published', 
+    '/calendar', 
+    '/settings', 
+    '/automations', 
+    '/upgrade',
+    '/referrals'
   ],
 };
 
