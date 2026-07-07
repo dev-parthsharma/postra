@@ -2,7 +2,56 @@
   "version": 2,
   "cleanUrls": true,
   "trailingSlash": false,
+  "redirects": [
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "cookie",
+          "key": "postra_session_active",
+          "value": "true"
+        }
+      ],
+      "destination": "/dashboard",
+      "statusCode": 307
+    },
+    {
+      "source": "/login",
+      "has": [
+        {
+          "type": "cookie",
+          "key": "postra_session_active",
+          "value": "true"
+        }
+      ],
+      "destination": "/dashboard",
+      "statusCode": 307
+    },
+    {
+      "source": "/signup",
+      "has": [
+        {
+          "type": "cookie",
+          "key": "postra_session_active",
+          "value": "true"
+        }
+      ],
+      "destination": "/dashboard",
+      "statusCode": 307
+    }
+  ],
   "rewrites": [
+    {
+      "source": "/",
+      "missing": [
+        {
+          "type": "cookie",
+          "key": "postra_session_active",
+          "value": "true"
+        }
+      ],
+      "destination": "https://postra-landing.vercel.app"
+    },
     {
       "source": "/(.*)",
       "destination": "/index.html"
