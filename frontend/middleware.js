@@ -1,4 +1,4 @@
-// frontend/middleware.js
+// frontend/middleware.js  -
 
 export const config = {
   // Explicitly list all active routes in your SPA to avoid regex engine mismatches
