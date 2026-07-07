@@ -1,7 +1,23 @@
 // frontend/middleware.js
 
 export const config = {
-  matcher: ['/', '/login', '/signup'],
+  matcher: [
+    '/', 
+    '/login', 
+    '/signup', 
+    '/dashboard', 
+    '/ideas', 
+    '/media', 
+    '/chat/:path*', 
+    '/drafts', 
+    '/scheduled', 
+    '/published', 
+    '/calendar', 
+    '/settings', 
+    '/automations', 
+    '/upgrade',
+    '/referrals'
+  ],
 };
 
 export default async function middleware(request) {
@@ -42,6 +58,11 @@ export default async function middleware(request) {
     }
   }
 
-  // By returning nothing (undefined), Vercel cleanly lets the request proceed 
-  // to your Vite React routing. This resolves the 404 errors completely.
+  // ── 3. React SPA Route Rewrite (Solves the 404 block for `/login`, `/signup`, etc.) ──
+  try {
+    const spaResponse = await fetch(new URL('/index.html', request.url));
+    return new Response(spaResponse.body, spaResponse);
+  } catch (err) {
+    console.error('Failed to rewrite to index.html:', err);
+  }
 }
