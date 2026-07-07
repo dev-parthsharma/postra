@@ -2,21 +2,10 @@
   "version": 2,
   "cleanUrls": true,
   "trailingSlash": false,
-  "routes": [
+  "rewrites": [
     {
-      "src": "/(login|signup|referrals|dashboard|ideas|media|chat/.*|drafts|scheduled|published|calendar|settings|automations|upgrade)",
-      "middleware": "middleware"
-    },
-    {
-      "src": "^/$",
-      "middleware": "middleware"
-    },
-    {
-      "handle": "filesystem"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
