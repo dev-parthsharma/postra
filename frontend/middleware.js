@@ -7,7 +7,7 @@ export const config = {
 export default async function middleware(request) {
   const url = new URL(request.url);
   
-  // Extract our dynamic session tracking cookie
+  // Extract session tracking cookie
   const cookieHeader = request.headers.get('cookie') || '';
   const hasSession = cookieHeader.includes('postra_session_active=true');
 
@@ -21,7 +21,6 @@ export default async function middleware(request) {
       try {
         const landingResponse = await fetch('https://postra-landing.vercel.app');
         
-        // Return landing page content with its native headers
         return new Response(landingResponse.body, {
           status: landingResponse.status,
           headers: {
@@ -31,7 +30,6 @@ export default async function middleware(request) {
         });
       } catch (err) {
         console.error('Edge rewrite proxy to landing page failed:', err);
-        // Fallback to Vite login if proxy fails
         return Response.redirect(new URL('/login', request.url), 307);
       }
     }
@@ -44,8 +42,6 @@ export default async function middleware(request) {
     }
   }
 
-  // Continue standard execution for assets and Vite routing
-  return new Response(null, {
-    headers: { 'x-middleware-next': '1' }
-  });
+  // By returning nothing (undefined), Vercel cleanly lets the request proceed 
+  // to your Vite React routing. This resolves the 404 errors completely.
 }
