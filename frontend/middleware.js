@@ -1,22 +1,14 @@
 // frontend/middleware.js
 
 export const config = {
+  /*
+   * Matches all request paths EXCEPT:
+   * - assets (Vite compiled static assets)
+   * - favicon.ico (browser tab icon)
+   * - Any path containing a period "." (e.g. style.css, script.js, postra-logo.png)
+   */
   matcher: [
-    '/', 
-    '/login', 
-    '/signup', 
-    '/dashboard', 
-    '/ideas', 
-    '/media', 
-    '/chat/:path*', 
-    '/drafts', 
-    '/scheduled', 
-    '/published', 
-    '/calendar', 
-    '/settings', 
-    '/automations', 
-    '/upgrade',
-    '/referrals'
+    '/((?!assets|favicon.ico|.*\\..*).*)',
   ],
 };
 
@@ -33,10 +25,9 @@ export default async function middleware(request) {
       // Authenticated users go straight to dashboard
       return Response.redirect(new URL('/dashboard', request.url), 307);
     } else {
-      // Unauthenticated users see the landing page transparently
+      // Unauthenticated users see the landing page transparently via proxy fetch
       try {
         const landingResponse = await fetch('https://postra-landing.vercel.app');
-        
         return new Response(landingResponse.body, {
           status: landingResponse.status,
           headers: {
@@ -45,7 +36,7 @@ export default async function middleware(request) {
           },
         });
       } catch (err) {
-        console.error('Edge rewrite proxy to landing page failed:', err);
+        console.error('Edge proxy to landing page failed:', err);
         return Response.redirect(new URL('/login', request.url), 307);
       }
     }
@@ -58,11 +49,10 @@ export default async function middleware(request) {
     }
   }
 
-  // ── 3. React SPA Route Rewrite (Solves the 404 block for `/login`, `/signup`, etc.) ──
-  try {
-    const spaResponse = await fetch(new URL('/index.html', request.url));
-    return new Response(spaResponse.body, spaResponse);
-  } catch (err) {
-    console.error('Failed to rewrite to index.html:', err);
-  }
+  // ── 3. React SPA Route Rewrite (Bypasses assets, rewrites pages to index.html) ──
+  return new Response(null, {
+    headers: {
+      'x-middleware-rewrite': '/index.html'
+    }
+  });
 }
