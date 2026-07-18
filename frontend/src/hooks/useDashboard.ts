@@ -99,7 +99,7 @@ export function useDashboard() {
           oldestDraftRes,
           savedIdeasRes,
           todayScheduledIdeaRes, 
-        ] = await Promise.all([
+        ] = await Promise.all([ 
           // 1. Profile (🟢 FIXED: Removed non-existent 'last_posted_date' column from select)
           supabase.from("user_profile").select("name, streak_frequency").eq("id", user!.id).single(),
           // 2. Posts this month

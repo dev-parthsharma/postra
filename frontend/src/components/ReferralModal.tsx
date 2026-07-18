@@ -56,7 +56,7 @@ export default function OnboardingReferralModal({ userId, onComplete }: Referral
     try {
       // Mark step completed in the database directly
       await supabase
-        .from("user_profile")
+        .from("user_profile") 
         .update({ referral_step_completed: true })
         .eq("id", userId);
       

@@ -301,7 +301,7 @@ export default function SettingsPage() {
         .from("user_profile")
         .select("name, niche, tone, style, goal, content_goal, preferred_language, streak_frequency")  // ← added content_goal
         .eq("id", user.id)
-        .single();
+        .single(); 
 
       if (data) {
         const freqValue = data.streak_frequency ?? "";

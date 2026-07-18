@@ -81,7 +81,7 @@ export default function Media() {
         .from("user_profile")
         .select("plan")
         .eq("id", user.id)
-        .single();
+        .single(); 
       
       const rawPlan = profile?.plan?.toLowerCase() || "free";
       const userPlan = ["free", "starter", "pro"].includes(rawPlan) ? rawPlan : "free";

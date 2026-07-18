@@ -144,7 +144,7 @@ export default function Login() {
         .from("user_profile")
         .select("niche")
         .eq("id", user.id)
-        .single();
+        .single(); 
       
       if (!profile || !profile.niche) {
         navigate("/?onboarding=true");

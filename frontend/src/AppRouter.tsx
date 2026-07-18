@@ -74,7 +74,7 @@ function HomeWithOnboarding() {
 
       // Fetch user profile cleanly using maybeSingle()
       let { data: profile, error } = await supabase
-        .from("user_profile")
+        .from("user_profile") 
         .select("niche, content_goal, referral_step_completed")
         .eq("id", user.id)
         .maybeSingle();

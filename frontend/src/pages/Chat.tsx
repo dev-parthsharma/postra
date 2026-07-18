@@ -21,7 +21,7 @@ export default function Chat() {
         const { data } = await supabase
           .from("user_profile")
           .select("plan")
-          .eq("id", user.id)
+          .eq("id", user.id) 
           .single();
         // 🟢 BYPASSED: Always set plan to "pro" for testing
         if (data?.plan) {

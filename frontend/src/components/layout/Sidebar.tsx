@@ -362,7 +362,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return;
       setUserId(user.id);
-      supabase
+      supabase 
         .from("user_profile")
         .select("plan")
         .eq("id", user.id)

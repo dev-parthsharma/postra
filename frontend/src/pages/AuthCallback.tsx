@@ -27,7 +27,7 @@ export default function AuthCallback() {
       const { data: profile } = await supabase
         .from("user_profile")
         .select("id, niche")
-        .eq("id", session.user.id)
+        .eq("id", session.user.id) 
         .single();
 
       // If no profile row or niche is empty → show onboarding
