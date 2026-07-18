@@ -225,19 +225,21 @@ def increment_ideas_used_today(supabase, user_id: str) -> None:
 
 # ── User profile ──────────────────────────────────────────────────────────────
 
-def get_user_profile(supabase, user_id: str) -> Optional[dict]:
+def get_user_profile(supabase, user_id: str):
     response = (
         supabase.table("user_profile")
-        .select("niche, tone, style, goal, content_goal, preferred_language, plan")
+        .select("*")
         .eq("id", user_id)
-        .single()
+        .limit(1)
         .execute()
     )
+
     if not response.data:
         return None
-    data = response.data
-    data["language"] = data.pop("preferred_language", "english") or "english"
-    return 
+
+    data = response.data[0]
+    data["language"] = data.get("preferred_language") or "english"
+    return data
 
 def update_content_goal(supabase, user_id: str, content_goal: str) -> dict:
     """Updates only the content_goal field for a user."""
